@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>{{ carrier.name or 'Carrier' }} - Eagle Dashboard</title>
+</head>
+<body>
+    <h1>Carrier: {{ carrier.name or carrier.company_name or 'Unknown' }}</h1>
+    <p>Phone: {{ carrier.phone }}</p>
+    <p>Email: {{ carrier.email }}</p>
+    <p>Total Queries: {{ carrier.total_queries }}</p>
+    <p>Total Bookings: {{ carrier.total_bookings }}</p>
+
+    <h2>Insights</h2>
+    <p>Preferred Lanes: {{ insights.preferred_lanes }}</p>
+    <p>Preferred Equipment: {{ insights.preferred_equipment }}</p>
+
+    <h2>History</h2>
+    <ul>
+    {% for item in history %}
+        <li>{{ item.timestamp }}: {{ item.origin }} to {{ item.destination }}</li>
+    {% endfor %}
+    </ul>
+</body>
+</html>
