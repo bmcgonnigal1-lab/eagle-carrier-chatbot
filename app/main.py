@@ -15,7 +15,7 @@ from app.database import Database
 from app.ai_engine import AIEngine
 from channels.sms import SMSChannel, MockSMSChannel
 from channels.email import EmailChannel, MockEmailChannel
-from integrations.google_sheets import GoogleSheetsLoader, MockSheetsLoader
+from integrations.google_sheets import GoogleSheetsLoader, MockSheetsLoader, SqliteLoadsLoader
 
 
 class CarrierChatbot:
