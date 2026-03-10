@@ -274,6 +274,10 @@ class SqliteLoadsLoader:
             else:
                 print(f"🔍 data/ folder does not exist!")
 
+print(f"🔍 Does 'static' folder exist? {os.path.exists('static')}")
+print(f"🔍 Files in static/: {os.listdir('static') if os.path.exists('static') else 'N/A'}")
+print(f"🔍 Does '{self.db_path}' exist? {os.path.exists(self.db_path)}")
+
             if not os.path.exists(self.db_path):
                 print(f"✗ Loads database not found: {self.db_path}")
                 print("✓ Using mock data instead")
