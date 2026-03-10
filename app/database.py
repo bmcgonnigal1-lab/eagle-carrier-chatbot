@@ -118,7 +118,20 @@ class Database:
 
         print("✓ Database initialized")
 
-    def get_carrier_by_phone(self, phone: str) -> Optional[Dict]:
+    ⁠ python
+   def get_carrier(self, carrier_id: int) -> Optional[Dict]:
+       """Get carrier by ID"""
+       conn = self.get_connection()
+       cursor = conn.cursor()
+
+       cursor.execute('SELECT * FROM carriers WHERE id = ?', (carrier_id,))
+       row = cursor.fetchone()
+       conn.close()
+
+       if row:
+           return dict(row)
+       return None
+   def get_carrier_by_phone(self, phone: str) -> Optional[Dict]:
         """Get carrier by phone number"""
         conn = self.get_connection()
         cursor = conn.cursor()
