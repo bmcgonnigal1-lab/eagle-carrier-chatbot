@@ -130,7 +130,7 @@ class Database:
        if row:
            return dict(row)
        return None
-   def get_carrier_by_phone(self, phone: str) -> Optional[Dict]:
+    def get_carrier_by_phone(self, phone: str) -> Optional[Dict]:
         """Get carrier by phone number"""
         conn = self.get_connection()
         cursor = conn.cursor()
