@@ -255,7 +255,7 @@ Special Instructions: {load.get('special_instructions', 'None')}
 class SqliteLoadsLoader:
     """Load data from SQLite database (Aljex import)"""
     
-    def __init__(self, db_path: str = 'loads.db'):
+    def __init__(self, db_path: str = 'static/loads.db'):
         import sqlite3
         self.db_path = db_path
         self.conn = None
