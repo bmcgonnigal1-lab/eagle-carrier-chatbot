@@ -64,7 +64,7 @@ class RingCentralSMSChannel:
         Send SMS via RingCentral
 
         Args:
-            to_phone: Recipient phone number (format: +1XXXXXXXXXX)
+            to_phone: Recipient phone number in E.164 format
             message: Message text
 
         Returns:
