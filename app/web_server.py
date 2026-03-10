@@ -27,21 +27,26 @@ def init_chatbot():
     """Initialize chatbot instance"""
     global chatbot
     if chatbot is None:
+        # Read from environment variables first, then fall back to config file
+        use_mock_sms = os.getenv('USE_MOCK_SMS', 'true').lower() == 'true'
+        use_mock_email = os.getenv('USE_MOCK_EMAIL', 'true').lower() == 'true'
+        use_mock_sheets = os.getenv('USE_MOCK_SHEETS', 'true').lower() == 'true'
+
         try:
-            # Try to import config
+            # Try to import config (for local development)
             import config
-            chatbot = CarrierChatbot(
-                use_mock_sms=config.USE_MOCK_SMS,
-                use_mock_sheets=config.USE_MOCK_SHEETS,
-                use_mock_email=config.USE_MOCK_EMAIL
-            )
+            use_mock_sms = config.USE_MOCK_SMS
+            use_mock_sheets = config.USE_MOCK_SHEETS
+            use_mock_email = config.USE_MOCK_EMAIL
         except ImportError:
-            # Use mock mode if no config
-            chatbot = CarrierChatbot(
-                use_mock_sms=True,
-                use_mock_sheets=True,
-                use_mock_email=True
-            )
+            # Use environment variables (for production/Render)
+            pass
+
+        chatbot = CarrierChatbot(
+            use_mock_sms=use_mock_sms,
+            use_mock_sheets=use_mock_sheets,
+            use_mock_email=use_mock_email
+        )
     return chatbot
 
 
