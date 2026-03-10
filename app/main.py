@@ -72,14 +72,18 @@ class CarrierChatbot:
 
         # Load Data Source
         if use_mock_sheets:
-            self.sheets_loader = MockSheetsLoader()
+            # Try SqliteLoadsLoader first, fall back to MockSheetsLoader
+            self.sheets_loader = SqliteLoadsLoader()
+            if not self.sheets_loader.connect():
+                # If no database found, use mock data
+                self.sheets_loader = MockSheetsLoader()
+                self.sheets_loader.connect()
         else:
             self.sheets_loader = GoogleSheetsLoader(
                 credentials_path=self.config.get('google_credentials_path'),
                 sheet_url=self.config.get('google_sheet_url')
             )
-
-        self.sheets_loader.connect()
+            self.sheets_loader.connect()
 
         print("✅ Eagle Carrier Chatbot initialized!\n")
 
