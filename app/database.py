@@ -118,7 +118,7 @@ class Database:
 
         print("✓ Database initialized")
 
-   def get_carrier(self, carrier_id: int) -> Optional[Dict]:
+    def get_carrier(self, carrier_id: int) -> Optional[Dict]:
        """Get carrier by ID"""
        conn = self.get_connection()
        cursor = conn.cursor()
