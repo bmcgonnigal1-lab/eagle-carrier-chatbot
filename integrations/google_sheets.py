@@ -265,12 +265,19 @@ class SqliteLoadsLoader:
         try:
             import sqlite3
             import os
+
+            # Debug: Show current directory and data folder contents
+            print(f"🔍 Looking for database at: {self.db_path}")
+            print(f"🔍 Current working directory: {os.getcwd()}")
+            if os.path.exists('data'):
+                print(f"🔍 Files in data/: {os.listdir('data')}")
+            else:
+                print(f"🔍 data/ folder does not exist!")
+
             if not os.path.exists(self.db_path):
                 print(f"✗ Loads database not found: {self.db_path}")
                 print("✓ Using mock data instead")
                 return False
-            
-            self.conn = sqlite3.connect(self.db_path)
             self.conn.row_factory = sqlite3.Row
             print(f"✓ Connected to loads database: {self.db_path}")
             return True
