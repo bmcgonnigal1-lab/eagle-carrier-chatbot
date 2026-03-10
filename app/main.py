@@ -50,14 +50,21 @@ class CarrierChatbot:
         self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
 
         # SMS Channel
-        if use_mock_sms:
+        use_ringcentral = os.getenv('USE_RINGCENTRAL', 'false').lower() == 'true'
+        
+        if use_ringcentral:
+            from channels.ringcentral_sms import RingCentralSMSChannel
+            self.sms_channel = RingCentralSMSChannel()
+            # Login to RingCentral
+            self.sms_channel.login()
+        elif use_mock_sms:
             self.sms_channel = MockSMSChannel()
         else:
             self.sms_channel = SMSChannel(
                 account_sid=self.config.get('twilio_account_sid'),
                 auth_token=self.config.get('twilio_auth_token'),
                 phone_number=self.config.get('twilio_phone_number')
-            )
+
 
         # Email Channel (Phase 2)
         if use_mock_email:
