@@ -64,7 +64,7 @@ class CarrierChatbot:
                 account_sid=self.config.get('twilio_account_sid'),
                 auth_token=self.config.get('twilio_auth_token'),
                 phone_number=self.config.get('twilio_phone_number')
-
+            )
 
         # Email Channel (Phase 2)
         if use_mock_email:
