@@ -16,7 +16,7 @@ class RingCentralSMSChannel:
         Args:
             client_id: RingCentral Client ID
             client_secret: RingCentral Client Secret
-            server: API server URL (default: https://platform.ringcentral.com)
+            server: API server URL
             phone_number: Your RingCentral phone number
         """
         # Get from environment variables if not provided
@@ -26,31 +26,22 @@ class RingCentralSMSChannel:
         self.phone_number = phone_number or os.getenv('RC_PHONE_NUMBER')
 
         if not all([self.client_id, self.client_secret, self.phone_number]):
-            raise ValueError("Missing RingCentral credentials. Set RC_CLIENT_ID, RC_CLIENT_SECRET, and RC_PHONE_NUMBER")
+            raise ValueError("Missing RingCentral credentials")
 
         # Initialize SDK
         self.sdk = SDK(self.client_id, self.client_secret, self.server)
         self.platform = self.sdk.platform()
 
-        # Authenticate using JWT (will need username/password for first-time setup)
-        # For production, you'll need to get a JWT token or use password auth
         print("✓ RingCentral SMS client initialized")
 
     def login(self, username=None, extension=None, password=None):
-        """
-        Login to RingCentral (required before sending messages)
-
-        Args:
-            username: RingCentral phone number or username
-            extension: Extension number (optional)
-            password: Account password
-        """
+        """Login to RingCentral"""
         username = username or os.getenv('RC_USERNAME')
         password = password or os.getenv('RC_PASSWORD')
         extension = extension or os.getenv('RC_EXTENSION', '')
 
         if not username or not password:
-            raise ValueError("Missing RC_USERNAME or RC_PASSWORD environment variables")
+            raise ValueError("Missing RC_USERNAME or RC_PASSWORD")
 
         try:
             self.platform.login(username, extension, password)
@@ -60,16 +51,7 @@ class RingCentralSMSChannel:
             raise
 
     def send_sms(self, to_phone: str, message: str) -> bool:
-        """
-        Send SMS via RingCentral
-
-        Args:
-            to_phone: Recipient phone number in E.164 format
-            message: Message text
-
-        Returns:
-            True if sent successfully
-        """
+        """Send SMS via RingCentral"""
         try:
             response = self.platform.post('/restapi/v1.0/account/~/extension/~/sms', {
                 'from': {'phoneNumber': self.phone_number},
@@ -85,7 +67,7 @@ class RingCentralSMSChannel:
             return False
 
     def is_us_phone(self, phone: str) -> bool:
-        """Check if phone number is US/Canada (+1)"""
+        """Check if phone number is US or Canada"""
         return phone.startswith('+1')
 
 
@@ -105,5 +87,5 @@ class MockRingCentralSMSChannel:
         return True
 
     def is_us_phone(self, phone: str) -> bool:
-        """Check if phone number is US/Canada (+1)"""
+        """Check if phone number is US or Canada"""
         return phone.startswith('+1')
