@@ -252,3 +252,65 @@ Weight: {load.get('weight', 'N/A')} lbs
 Commodity: {load.get('commodity', 'General Freight')}
 Special Instructions: {load.get('special_instructions', 'None')}
 """
+class SqliteLoadsLoader:
+    """Load data from SQLite database (Aljex import)"""
+    
+    def __init__(self, db_path: str = 'data/loads.db'):
+        import sqlite3
+        self.db_path = db_path
+        self.conn = None
+    
+    def connect(self):
+        """Connect to SQLite loads database"""
+        try:
+            import sqlite3
+            import os
+            if not os.path.exists(self.db_path):
+                print(f"✗ Loads database not found: {self.db_path}")
+                print("✓ Using mock data instead")
+                return False
+            
+            self.conn = sqlite3.connect(self.db_path)
+            self.conn.row_factory = sqlite3.Row
+            print(f"✓ Connected to loads database: {self.db_path}")
+            return True
+        except Exception as e:
+            print(f"✗ Failed to connect to loads database: {e}")
+            print("✓ Using mock data instead")
+            return False
+    
+    def get_all_loads(self):
+        """Get all available loads from database"""
+        if not self.conn:
+            return []
+        
+        cursor = self.conn.cursor()
+        cursor.execute('''
+            SELECT load_id, customer, origin_state, origin_city,
+                   destination_state, destination_city, ship_date,
+                   delivery_date, equipment_type, trailer_length,
+                   weight, rate, status, commodity
+            FROM loads
+            WHERE status = 'available'
+            ORDER BY ship_date
+        ''')
+        
+        rows = cursor.fetchall()
+        loads = []
+        
+        for row in rows:
+            loads.append({
+                'Load ID': row['load_id'],
+                'Customer': row['customer'],
+                'Origin': f"{row['origin_city']}, {row['origin_state']}",
+                'Destination': f"{row['destination_city']}, {row['destination_state']}",
+                'Ship Date': row['ship_date'],
+                'Delivery Date': row['delivery_date'],
+                'Equipment': row['equipment_type'],
+                'Length': row['trailer_length'],
+                'Weight': row['weight'],
+                'Rate': row['rate'],
+                'Commodity': row['commodity'] or row['customer']
+            })
+        
+        return loads
