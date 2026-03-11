@@ -252,14 +252,16 @@ Weight: {load.get('weight', 'N/A')} lbs
 Commodity: {load.get('commodity', 'General Freight')}
 Special Instructions: {load.get('special_instructions', 'None')}
 """
+
+
 class SqliteLoadsLoader:
     """Load data from SQLite database (Aljex import)"""
-    
-    def __init__(self, db_path: str = 'static/loads.db'):
+
+    def __init__(self, db_path: str = 'data/loads.db'):
         import sqlite3
         self.db_path = db_path
         self.conn = None
-    
+
     def connect(self):
         """Connect to SQLite loads database"""
         try:
@@ -274,15 +276,12 @@ class SqliteLoadsLoader:
             else:
                 print(f"🔍 data/ folder does not exist!")
 
-            print(f"🔍 Does 'static' folder exist? {os.path.exists('static')}")
-            print(f"🔍 Files in static/: {os.listdir('static') if os.path.exists('static') else 'N/A'}")
-            print(f"🔍 Does '{self.db_path}' exist? {os.path.exists(self.db_path)}")
-
             if not os.path.exists(self.db_path):
                 print(f"✗ Loads database not found: {self.db_path}")
                 print("✓ Using mock data instead")
                 return False
-            self.conn = sqlite3.connect(self.db_path)   
+
+            self.conn = sqlite3.connect(self.db_path)
             self.conn.row_factory = sqlite3.Row
             print(f"✓ Connected to loads database: {self.db_path}")
             return True
@@ -290,39 +289,113 @@ class SqliteLoadsLoader:
             print(f"✗ Failed to connect to loads database: {e}")
             print("✓ Using mock data instead")
             return False
-    
+
     def get_all_loads(self):
         """Get all available loads from database"""
         if not self.conn:
             return []
-        
-        cursor = self.conn.cursor()
-        cursor.execute('''
-            SELECT load_id, customer, origin_state, origin_city,
-                   destination_state, destination_city, ship_date,
-                   delivery_date, equipment_type, trailer_length,
-                   weight, rate, status, commodity
-            FROM loads
-            WHERE status = 'available'
-            ORDER BY ship_date
-        ''')
-        
-        rows = cursor.fetchall()
-        loads = []
-        
-        for row in rows:
-            loads.append({
-                'Load ID': row['load_id'],
-                'Customer': row['customer'],
-                'Origin': f"{row['origin_city']}, {row['origin_state']}",
-                'Destination': f"{row['destination_city']}, {row['destination_state']}",
-                'Ship Date': row['ship_date'],
-                'Delivery Date': row['delivery_date'],
-                'Equipment': row['equipment_type'],
-                'Length': row['trailer_length'],
-                'Weight': row['weight'],
-                'Rate': row['rate'],
-                'Commodity': row['commodity'] or row['customer']
-            })
-        
-        return loads
+
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute('''
+                SELECT load_id, customer, origin_state, origin_city,
+                       destination_state, destination_city, ship_date,
+                       delivery_date, equipment_type, trailer_length,
+                       weight, rate
+                FROM loads
+                ORDER BY ship_date
+            ''')
+
+            loads = []
+            for row in cursor.fetchall():
+                # Format to match expected structure
+                origin = f"{row['origin_city']}, {row['origin_state']}" if row['origin_city'] else row['origin_state']
+                destination = f"{row['destination_city']}, {row['destination_state']}" if row['destination_city'] else row['destination_state']
+
+                loads.append({
+                    'load_id': row['load_id'],
+                    'origin': origin,
+                    'origin_city': row['origin_city'],
+                    'origin_state': row['origin_state'],
+                    'destination': destination,
+                    'destination_city': row['destination_city'],
+                    'destination_state': row['destination_state'],
+                    'equipment_type': row['equipment_type'],
+                    'trailer_length': row['trailer_length'],
+                    'pickup_date': row['ship_date'],
+                    'delivery_date': row['delivery_date'],
+                    'rate': row['rate'],
+                    'weight': row['weight'],
+                    'commodity': row['customer'],
+                    'special_instructions': '',
+                    'status': 'available'
+                })
+
+            return loads
+
+        except Exception as e:
+            print(f"Error fetching loads from database: {e}")
+            return []
+
+    def search_loads(self, origin=None, destination=None, equipment_type=None, **kwargs):
+        """Search loads with filters"""
+        all_loads = self.get_all_loads()
+        results = []
+
+        for load in all_loads:
+            # Check origin (match against city or state)
+            if origin:
+                origin_upper = origin.upper()
+                if (origin_upper not in load.get('origin_city', '').upper() and
+                    origin_upper != load.get('origin_state', '').upper()):
+                    continue
+
+            # Check destination (match against city or state)
+            if destination:
+                dest_upper = destination.upper()
+                if (dest_upper not in load.get('destination_city', '').upper() and
+                    dest_upper != load.get('destination_state', '').upper()):
+                    continue
+
+            # Check equipment type
+            if equipment_type:
+                if equipment_type.lower() not in load.get('equipment_type', '').lower():
+                    continue
+
+            results.append(load)
+
+        return results
+
+    def get_load_by_id(self, load_id):
+        """Get specific load by ID"""
+        all_loads = self.get_all_loads()
+        for load in all_loads:
+            if load['load_id'].upper() == load_id.upper():
+                return load
+        return None
+
+    def format_load_for_sms(self, load):
+        """Format load for SMS response"""
+        length_str = f"{load['trailer_length']}'" if load.get('trailer_length') else ''
+        special = load.get('special_instructions', '')
+        special_str = f"\n   {special}" if special else ''
+
+        return f"""{load['load_id']} - {load['equipment_type']} {length_str}
+   {load['origin']} → {load['destination']}
+   {load['pickup_date']}, ${load['rate']:,}{special_str}"""
+
+    def format_load_for_email(self, load):
+        """Format load for email response"""
+        return f"""
+━━━━━━━━━━━━━━━━━━━━━
+LOAD: {load['load_id']}
+━━━━━━━━━━━━━━━━━━━━━
+Origin: {load['origin']}
+Destination: {load['destination']}
+Equipment: {load['equipment_type']}, {load.get('trailer_length', 'N/A')}'
+Pickup: {load['pickup_date']}
+Rate: ${load['rate']:,}
+Weight: {load.get('weight', 'N/A')} lbs
+Commodity: {load.get('commodity', 'General Freight')}
+Special Instructions: {load.get('special_instructions', 'None')}
+"""
