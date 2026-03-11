@@ -265,6 +265,61 @@ def api_stats():
 
 # ===== ADMIN ROUTES =====
 
+@app.route('/admin/list-ringcentral-webhooks', methods=['GET'])
+def list_ringcentral_webhooks():
+    """List all RingCentral webhook subscriptions"""
+    bot = init_chatbot()
+
+    # Check if using RingCentral
+    if not hasattr(bot.sms_channel, 'platform'):
+        return jsonify({
+            'status': 'error',
+            'message': 'RingCentral SMS not configured'
+        }), 400
+
+    try:
+        response = bot.sms_channel.platform.get('/restapi/v1.0/subscription')
+        subscriptions = response.json()
+
+        return jsonify({
+            'status': 'success',
+            'subscriptions': subscriptions.get('records', [])
+        })
+
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to list webhooks: {str(e)}'
+        }), 500
+
+
+@app.route('/admin/delete-ringcentral-webhook/<subscription_id>', methods=['DELETE', 'GET'])
+def delete_ringcentral_webhook(subscription_id):
+    """Delete a RingCentral webhook subscription"""
+    bot = init_chatbot()
+
+    # Check if using RingCentral
+    if not hasattr(bot.sms_channel, 'platform'):
+        return jsonify({
+            'status': 'error',
+            'message': 'RingCentral SMS not configured'
+        }), 400
+
+    try:
+        bot.sms_channel.platform.delete(f'/restapi/v1.0/subscription/{subscription_id}')
+
+        return jsonify({
+            'status': 'success',
+            'message': f'Webhook {subscription_id} deleted successfully'
+        })
+
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to delete webhook: {str(e)}'
+        }), 500
+
+
 @app.route('/admin/setup-ringcentral-webhook', methods=['GET'])
 def setup_ringcentral_webhook():
     """
