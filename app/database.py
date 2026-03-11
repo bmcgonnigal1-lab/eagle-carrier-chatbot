@@ -5,8 +5,6 @@ Designed to scale from SQLite to PostgreSQL with zero code changes
 """
 
 import sqlite3
-import psycopg2
-import psycopg2.extras
 import json
 import uuid
 from datetime import datetime
@@ -24,10 +22,8 @@ class ComprehensiveCarrierDatabase:
     - Performance analytics
     """
 
-    def __init__(self, db_path: str = "data/carriers.db", database_url: str = None):
-        self.database_url = database_url or os.environ.get("DATABASE_URL")
-        self.is_postgres = bool(self.database_url)
-        self.db_path = db_path if not self.is_postgres else None
+    def __init__(self, db_path: str = "data/carriers.db"):
+        self.db_path = db_path
 
         # Create data directory if it doesn't exist
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -35,15 +31,8 @@ class ComprehensiveCarrierDatabase:
         self.init_database()
 
     def get_connection(self):
-        """Get database connection (SQLite or PostgreSQL)"""
-        if self.is_postgres:
-            conn = psycopg2.connect(self.database_url)
-            conn.cursor_factory = psycopg2.extras.RealDictCursor
-            return conn
-        else:
-            conn = sqlite3.connect(self.db_path)
-            conn.row_factory = sqlite3.Row
-            return conn
+        """Get database connection"""
+        conn = sqlite3.connect(self.db_path)
         conn.row_factory = sqlite3.Row  # Return rows as dictionaries
         return conn
 
@@ -52,12 +41,21 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
+        # Database-agnostic syntax
+        if self.is_postgres:
+            pk = 'SERIAL PRIMARY KEY'
+            now = 'CURRENT_TIMESTAMP'
+        else:
+            pk = 'INTEGER PRIMARY KEY AUTOINCREMENT'
+            now = "datetime('now')"
+
+
         # ===== TABLE 1: CARRIERS (Core Identity) =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carriers (
                 -- Primary Identification
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                uuid TEXT UNIQUE DEFAULT (lower(hex(randomblob(16)))),
+                id {pk},
+                uuid TEXT UNIQUE ,
 
                 -- Government Registration
                 dot_number TEXT UNIQUE,
@@ -154,17 +152,16 @@ class ComprehensiveCarrierDatabase:
                 source_reference TEXT,
 
                 -- Timestamps
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT ({now}),
+                updated_at TEXT DEFAULT ({now}),
 
-                CHECK (phone IS NOT NULL OR email IS NOT NULL)
             )
         ''')
 
         # ===== TABLE 2: CARRIER EQUIPMENT =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_equipment (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- Fleet Size
@@ -218,16 +215,16 @@ class ComprehensiveCarrierDatabase:
                 tracking_visibility_level TEXT,
 
                 -- Timestamps
-                last_updated TEXT DEFAULT (datetime('now')),
+                last_updated TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id) ON DELETE CASCADE
             )
         ''')
 
         # ===== TABLE 3: CARRIER INSURANCE =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_insurance (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- Auto Liability
@@ -273,17 +270,17 @@ class ComprehensiveCarrierDatabase:
                 days_until_expiration INTEGER,
 
                 -- Timestamps
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT ({now}),
+                updated_at TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id) ON DELETE CASCADE
             )
         ''')
 
         # ===== TABLE 4: CARRIER SAFETY SCORES (FMCSA) =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_safety_scores (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- FMCSA BASICS
@@ -338,7 +335,7 @@ class ComprehensiveCarrierDatabase:
 
                 -- Data Freshness
                 fmcsa_last_updated TEXT,
-                snapshot_date TEXT DEFAULT (datetime('now')),
+                snapshot_date TEXT DEFAULT ({now}),
 
                 -- Compliance
                 is_compliant INTEGER DEFAULT 1,
@@ -349,9 +346,9 @@ class ComprehensiveCarrierDatabase:
         ''')
 
         # ===== TABLE 5: CARRIER PERFORMANCE (Broker's Internal Tracking) =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_performance (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- Relationship Metrics
@@ -401,16 +398,16 @@ class ComprehensiveCarrierDatabase:
                 blacklisted_lanes TEXT,
 
                 -- Timestamps
-                last_calculated TEXT DEFAULT (datetime('now')),
+                last_calculated TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id) ON DELETE CASCADE
             )
         ''')
 
         # ===== TABLE 6: CARRIER LANES =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_lanes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- Lane Definition
@@ -446,17 +443,17 @@ class ComprehensiveCarrierDatabase:
                 confidence_score REAL,
 
                 -- Timestamps
-                created_at TEXT DEFAULT (datetime('now')),
-                last_updated TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT ({now}),
+                last_updated TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id) ON DELETE CASCADE
             )
         ''')
 
         # ===== TABLE 7: CARRIER DOCUMENTS =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_documents (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- Document Classification
@@ -490,17 +487,17 @@ class ComprehensiveCarrierDatabase:
                 upload_source TEXT,
 
                 -- Timestamps
-                uploaded_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
+                uploaded_at TEXT DEFAULT ({now}),
+                updated_at TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id) ON DELETE CASCADE
             )
         ''')
 
         # ===== TABLE 8: CARRIER CONTACTS =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_contacts (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- Contact Details
@@ -531,17 +528,17 @@ class ComprehensiveCarrierDatabase:
                 notes TEXT,
 
                 -- Timestamps
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT ({now}),
+                updated_at TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id) ON DELETE CASCADE
             )
         ''')
 
         # ===== TABLE 9: CARRIER BANKING =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_banking (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
 
                 -- Bank Account Details
@@ -575,17 +572,17 @@ class ComprehensiveCarrierDatabase:
                 status TEXT DEFAULT 'active',
 
                 -- Timestamps
-                created_at TEXT DEFAULT (datetime('now')),
-                updated_at TEXT DEFAULT (datetime('now')),
+                created_at TEXT DEFAULT ({now}),
+                updated_at TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id) ON DELETE CASCADE
             )
         ''')
 
         # ===== TABLE 10: CARRIER RATES (Rate Intelligence) =====
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_rates (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER NOT NULL,
                 load_id INTEGER,
 
@@ -636,11 +633,11 @@ class ComprehensiveCarrierDatabase:
         # ===== EXISTING TABLES (Backward Compatibility) =====
 
         # Query log table
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_queries (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER,
-                timestamp TEXT DEFAULT (datetime('now')),
+                timestamp TEXT DEFAULT ({now}),
                 channel TEXT,
                 raw_message TEXT,
 
@@ -662,12 +659,12 @@ class ComprehensiveCarrierDatabase:
         ''')
 
         # Booking requests table
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS booking_requests (
-                booking_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                booking_id {pk},
                 carrier_id INTEGER,
                 load_id TEXT,
-                timestamp TEXT DEFAULT (datetime('now')),
+                timestamp TEXT DEFAULT ({now}),
                 status TEXT DEFAULT 'pending',
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id)
@@ -677,9 +674,9 @@ class ComprehensiveCarrierDatabase:
         # ===== PHASE 1: CONVERSATION CONTEXT TABLES =====
 
         # Carrier profiles (AI Intelligence)
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS carrier_profiles (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER UNIQUE,
                 current_location TEXT,
                 next_empty_location TEXT,
@@ -687,16 +684,16 @@ class ComprehensiveCarrierDatabase:
                 equipment_types TEXT,
                 preferred_lanes TEXT,
                 typical_rate_ranges TEXT,
-                last_updated TEXT DEFAULT (datetime('now')),
+                last_updated TEXT DEFAULT ({now}),
 
                 FOREIGN KEY (carrier_id) REFERENCES carriers(id)
             )
         ''')
 
         # Conversation context
-        cursor.execute('''
+        cursor.execute(f'''
             CREATE TABLE IF NOT EXISTS conversation_context (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                id {pk},
                 carrier_id INTEGER UNIQUE,
                 conversation_state TEXT,
                 last_origin TEXT,
@@ -816,7 +813,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             INSERT INTO carrier_queries
             (carrier_id, channel, raw_message, intent, origin, destination,
              equipment_type, pickup_date, loads_shown, load_ids_shown,
@@ -832,10 +829,10 @@ class ComprehensiveCarrierDatabase:
             kwargs.get('response_time_seconds')
         ))
 
-        cursor.execute('''
+        cursor.execute(f'''
             UPDATE carriers
             SET total_queries = total_queries + 1,
-                last_active_date = datetime('now')
+                last_active_date = {now}
             WHERE id = ?
         ''', (carrier_id,))
 
@@ -847,12 +844,12 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             INSERT INTO booking_requests (carrier_id, load_id)
             VALUES (?, ?)
         ''', (carrier_id, load_id))
 
-        cursor.execute('''
+        cursor.execute(f'''
             UPDATE carriers
             SET total_bookings = total_bookings + 1
             WHERE id = ?
@@ -876,17 +873,17 @@ class ComprehensiveCarrierDatabase:
         context_json = json.dumps(context_data) if context_data else None
 
         if existing:
-            cursor.execute('''
+            cursor.execute(f'''
                 UPDATE conversation_context
                 SET conversation_state = ?,
                     last_origin = COALESCE(?, last_origin),
                     last_destination = COALESCE(?, last_destination),
-                    last_search_timestamp = datetime('now'),
+                    last_search_timestamp = {now},
                     context_data = COALESCE(?, context_data)
                 WHERE carrier_id = ?
             ''', (state, last_origin, last_destination, context_json, carrier_id))
         else:
-            cursor.execute('''
+            cursor.execute(f'''
                 INSERT INTO conversation_context
                 (carrier_id, conversation_state, last_origin, last_destination, context_data)
                 VALUES (?, ?, ?, ?, ?)
@@ -1098,7 +1095,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT c.id, c.legal_name, c.phone, c.email,
                    i.auto_liability_expiration_date,
                    i.cargo_expiration_date
@@ -1171,7 +1168,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT c.*, s.overall_safety_rating, s.iss_score
             FROM carriers c
             JOIN carrier_safety_scores s ON c.id = s.carrier_id
@@ -1241,7 +1238,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT c.*, p.reliability_score, p.on_time_pickup_percentage,
                    p.on_time_delivery_percentage, p.total_loads_completed
             FROM carriers c
@@ -1313,7 +1310,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT * FROM carrier_lanes
             WHERE carrier_id = ?
             ORDER BY loads_completed_on_lane DESC, confidence_score DESC
@@ -1394,13 +1391,13 @@ class ComprehensiveCarrierDatabase:
         cursor = conn.cursor()
 
         if doc_type:
-            cursor.execute('''
+            cursor.execute(f'''
                 SELECT * FROM carrier_documents
                 WHERE carrier_id = ? AND document_type = ?
                 ORDER BY uploaded_at DESC
             ''', (carrier_id, doc_type))
         else:
-            cursor.execute('''
+            cursor.execute(f'''
                 SELECT * FROM carrier_documents
                 WHERE carrier_id = ?
                 ORDER BY uploaded_at DESC
@@ -1416,7 +1413,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT c.id, c.legal_name, c.phone, c.email,
                    d.document_type, d.file_name, d.expiration_date
             FROM carriers c
@@ -1476,7 +1473,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT * FROM carrier_contacts
             WHERE carrier_id = ?
             ORDER BY is_primary DESC, created_at
@@ -1492,7 +1489,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT * FROM carrier_contacts
             WHERE carrier_id = ? AND is_primary = 1
             LIMIT 1
@@ -1639,7 +1636,7 @@ class ComprehensiveCarrierDatabase:
         conn = self.get_connection()
         cursor = conn.cursor()
 
-        cursor.execute('''
+        cursor.execute(f'''
             SELECT
                 AVG(accepted_rate) as avg_rate,
                 MIN(accepted_rate) as min_rate,
