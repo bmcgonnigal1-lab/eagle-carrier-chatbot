@@ -23,3 +23,6 @@ gunicorn==21.2.0
 
 # Utilities
 requests==2.31.0
+
+# Database
+psycopg2-binary==2.9.9
