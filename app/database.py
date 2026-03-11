@@ -5,6 +5,8 @@ Designed to scale from SQLite to PostgreSQL with zero code changes
 """
 
 import sqlite3
+import psycopg2
+import psycopg2.extras
 import json
 import uuid
 from datetime import datetime
@@ -22,8 +24,10 @@ class ComprehensiveCarrierDatabase:
     - Performance analytics
     """
 
-    def __init__(self, db_path: str = "data/carriers.db"):
-        self.db_path = db_path
+    def __init__(self, db_path: str = "data/carriers.db", database_url: str = None):
+        self.database_url = database_url or os.environ.get("DATABASE_URL")
+        self.is_postgres = bool(self.database_url)
+        self.db_path = db_path if not self.is_postgres else None
 
         # Create data directory if it doesn't exist
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -31,8 +35,15 @@ class ComprehensiveCarrierDatabase:
         self.init_database()
 
     def get_connection(self):
-        """Get database connection"""
-        conn = sqlite3.connect(self.db_path)
+        """Get database connection (SQLite or PostgreSQL)"""
+        if self.is_postgres:
+            conn = psycopg2.connect(self.database_url)
+            conn.cursor_factory = psycopg2.extras.RealDictCursor
+            return conn
+        else:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            return conn
         conn.row_factory = sqlite3.Row  # Return rows as dictionaries
         return conn
 
