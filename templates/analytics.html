@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Analytics - Eagle Dashboard</title>
+</head>
+<body>
+    <h1>🦅 Eagle Analytics</h1>
+
+    <h2>Daily Activity (Last 30 Days)</h2>
+    <table>
+        <tr><th>Date</th><th>Queries</th><th>Unique Carriers</th></tr>
+        {% for day in daily_activity %}
+        <tr>
+            <td>{{ day.date }}</td>
+            <td>{{ day.query_count }}</td>
+            <td>{{ day.carrier_count }}</td>
+        </tr>
+        {% endfor %}
+    </table>
+
+    <h2>Equipment Breakdown</h2>
+    <ul>
+    {% for equip in equipment_breakdown %}
+        <li>{{ equip.equipment_type }}: {{ equip.query_count }} queries</li>
+    {% endfor %}
+    </ul>
+
+    <h2>Top Origins</h2>
+    <ul>
+    {% for origin in geography_stats.top_origins %}
+        <li>{{ origin.origin }}: {{ origin.count }}</li>
+    {% endfor %}
+    </ul>
+
+    <h2>Top Destinations</h2>
+    <ul>
+    {% for dest in geography_stats.top_destinations %}
+        <li>{{ dest.destination }}: {{ dest.count }}</li>
+    {% endfor %}
+    </ul>
+</body>
+</html>

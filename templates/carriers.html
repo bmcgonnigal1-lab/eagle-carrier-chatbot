@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Carriers - Eagle Dashboard</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>🦅 Eagle Carrier Intelligence - Carriers</h1>
+        <div class="nav">
+            <a href="/">Dashboard</a>
+            <a href="/carriers">Carriers</a>
+            <a href="/analytics">Analytics</a>
+        </div>
+    </div>
+
+    <div class="container">
+        <div class="section">
+            <div class="section-title">All Carriers</div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Carrier</th>
+                        <th>Contact</th>
+                        <th>Total Queries</th>
+                        <th>Total Bookings</th>
+                        <th>Last Active</th>
+                        <th>Score</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for carrier in carriers %}
+                    <tr>
+                        <td><strong>{{ carrier.name or carrier.company_name or 'Unknown' }}</strong></td>
+                        <td>{{ carrier.phone or carrier.email or '-' }}</td>
+                        <td>{{ carrier.total_queries }}</td>
+                        <td>{{ carrier.total_bookings }}</td>
+                        <td>{{ carrier.last_active_date[:10] if carrier.last_active_date else 'Never' }}</td>
+                        <td><span class="grade">{{ carrier.score.grade if carrier.score else '-' }}</span></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</body>
+</html>

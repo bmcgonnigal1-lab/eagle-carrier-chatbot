@@ -1,0 +1,25 @@
+# Eagle Carrier Chatbot - Python Dependencies
+
+# Core
+python-dotenv==1.0.0
+
+# SMS Providers
+twilio==8.10.0
+ringcentral==0.7.13
+
+# OpenAI (AI Engine - Optional)
+openai==1.12.0
+
+# Google Sheets
+gspread==5.12.0
+google-auth==2.27.0
+
+# Microsoft 365 (Email & Excel) - Phase 2
+msal==1.26.0
+
+# Web Server
+flask==3.0.0
+gunicorn==21.2.0
+
+# Utilities
+requests==2.31.0
