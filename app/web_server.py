@@ -249,6 +249,52 @@ def api_stats():
 
 # ===== ADMIN ROUTES =====
 
+@app.route('/admin/setup-ringcentral-webhook', methods=['GET'])
+def setup_ringcentral_webhook():
+    """
+    One-time setup: Create RingCentral webhook subscription
+    Visit this URL once to set up SMS forwarding
+    """
+    bot = init_chatbot()
+
+    # Check if using RingCentral
+    if not hasattr(bot.sms_channel, 'platform'):
+        return jsonify({
+            'status': 'error',
+            'message': 'RingCentral SMS not configured'
+        }), 400
+
+    webhook_url = "https://eagle-carrier-chatbot.onrender.com/webhook/ringcentral"
+
+    try:
+        # Create webhook subscription
+        response = bot.sms_channel.platform.post('/restapi/v1.0/subscription', {
+            'eventFilters': [
+                '/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS'
+            ],
+            'deliveryMode': {
+                'transportType': 'WebHook',
+                'address': webhook_url
+            }
+        })
+
+        subscription = response.json()
+
+        return jsonify({
+            'status': 'success',
+            'message': 'RingCentral webhook created successfully!',
+            'subscription_id': subscription.get('id'),
+            'webhook_url': webhook_url,
+            'subscription_status': subscription.get('status')
+        })
+
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to create webhook: {str(e)}'
+        }), 500
+
+
 @app.route('/admin/process-emails', methods=['POST'])
 def admin_process_emails():
     """
