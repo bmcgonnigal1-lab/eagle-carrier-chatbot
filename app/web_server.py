@@ -77,10 +77,22 @@ def ringcentral_webhook():
     RingCentral SMS webhook handler
     Receives incoming SMS messages from RingCentral
     """
+    # CRITICAL: Handle validation token during webhook subscription setup
+    # RingCentral sends this header once when creating the subscription
+    validation_token = request.headers.get('Validation-Token')
+    if validation_token:
+        print(f"✓ Received validation token, echoing back: {validation_token[:20]}...")
+        response = jsonify({'status': 'validation_ok'})
+        response.headers['Validation-Token'] = validation_token
+        return response, 200
+
+    # Handle actual SMS notifications
     bot = init_chatbot()
 
     # Parse RingCentral webhook payload (JSON format)
     data = request.json
+
+    print(f"📱 Received RingCentral webhook: {data}")
 
     # RingCentral sends data in a specific format
     # Extract SMS details from the webhook payload
@@ -90,9 +102,13 @@ def ringcentral_webhook():
         from_phone = body.get('from', {}).get('phoneNumber', '')
         message_text = body.get('subject', '')  # SMS text is in 'subject' field
 
+        print(f"📨 SMS from {from_phone}: {message_text}")
+
         if from_phone and message_text:
             # Process the message
             response = bot.handle_sms(from_phone, message_text)
+
+            print(f"📤 Sending response: {response}")
 
             # Send response via RingCentral
             bot.sms_channel.send_sms(from_phone, response)
