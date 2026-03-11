@@ -50,14 +50,7 @@ class CarrierChatbot:
         self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
 
         # SMS Channel
-        use_ringcentral = os.getenv('USE_RINGCENTRAL', 'false').lower() == 'true'
-        
-        if use_ringcentral:
-            from channels.ringcentral_sms import RingCentralSMSChannel
-            self.sms_channel = RingCentralSMSChannel()
-            # Login to RingCentral
-            self.sms_channel.login()
-        elif use_mock_sms:
+        if use_mock_sms:
             self.sms_channel = MockSMSChannel()
         else:
             self.sms_channel = SMSChannel(
@@ -80,11 +73,15 @@ class CarrierChatbot:
         # Load Data Source
         if use_mock_sheets:
             # Try SqliteLoadsLoader first, fall back to MockSheetsLoader
-            self.sheets_loader = SqliteLoadsLoader()
+            # Check both static/loads.db and data/loads.db
+            self.sheets_loader = SqliteLoadsLoader('static/loads.db')
             if not self.sheets_loader.connect():
-                # If no database found, use mock data
-                self.sheets_loader = MockSheetsLoader()
-                self.sheets_loader.connect()
+                # Try data/loads.db
+                self.sheets_loader = SqliteLoadsLoader('data/loads.db')
+                if not self.sheets_loader.connect():
+                    # If no database found, use mock data
+                    self.sheets_loader = MockSheetsLoader()
+                    self.sheets_loader.connect()
         else:
             self.sheets_loader = GoogleSheetsLoader(
                 credentials_path=self.config.get('google_credentials_path'),
@@ -205,166 +202,61 @@ Questions? Call 770-965-1242"""
             from_email: Carrier email address
             from_name: Carrier name
             subject: Email subject
-            body: Email body (plain text)
+            body: Email body text
 
         Returns:
-            Response message to send back
+            Response message
         """
-        start_time = datetime.now()
-
-        # Normalize email
-        from_email = self.email_channel.normalize_email(from_email)
-
-        # Get or create carrier by email
+        # Get or create carrier
         carrier = self.database.get_carrier_by_email(from_email)
         if not carrier:
-            # New carrier - create profile
             carrier_id = self.database.create_carrier(
                 email=from_email,
                 name=from_name,
-                status='active',
-                onboarding_complete=False
+                status='active'
             )
-            carrier = self.database.get_carrier_by_email(from_email)
-            carrier_name = from_name or "there"
+            carrier_name = from_name
         else:
             carrier_id = carrier['id']
-            carrier_name = carrier.get('name') or from_name or "there"
+            carrier_name = carrier.get('name') or from_name
 
-        # Parse message with AI
+        # Parse email with AI
         parsed = self.ai_engine.parse_carrier_request(body)
         intent = parsed.get('intent', 'search_loads')
 
-        if intent == 'book_load':
-            # Booking request via email
-            load_id = parsed.get('load_id')
-            load = self.sheets_loader.get_load_by_id(load_id)
-
-            if load:
-                # Log booking request
-                self.database.log_booking_request(carrier_id, load_id)
-
-                # Alert dispatch
-                self._alert_dispatch_booking(carrier, load)
-
-                # Send confirmation email
-                subject = f"Booking Request Confirmed - Load {load_id}"
-                response_body = self.ai_engine.generate_response(
-                    carrier_name, [load], 'book_load', 'email'
-                )
-
-                self.email_channel.send_email(
-                    to_email=from_email,
-                    subject=subject,
-                    body=response_body,
-                    body_type="Text"
-                )
-
-                return "Booking confirmation sent"
-
-        elif intent == 'search_loads':
-            # Search for loads
+        if intent == 'search_loads':
             loads = self.sheets_loader.search_loads(
                 origin=parsed.get('origin'),
                 destination=parsed.get('destination'),
-                equipment_type=parsed.get('equipment_type'),
-                pickup_date=parsed.get('pickup_date')
+                equipment_type=parsed.get('equipment_type')
+            )
+
+            response = self.ai_engine.generate_response(
+                carrier_name, loads, 'search_loads', 'email'
             )
 
             # Log query
-            load_ids = [load.get('load_id') for load in loads]
             self.database.log_query(
                 carrier_id=carrier_id,
                 channel='email',
-                raw_message=body[:500],  # First 500 chars
+                raw_message=body,
                 intent=intent,
                 origin=parsed.get('origin'),
                 destination=parsed.get('destination'),
                 equipment_type=parsed.get('equipment_type'),
-                pickup_date=parsed.get('pickup_date'),
-                loads_shown=len(loads),
-                load_ids_shown=load_ids,
-                response_time_seconds=(datetime.now() - start_time).seconds
+                loads_shown=len(loads)
             )
 
-            # Send email with formatted load list
-            subject = f"Available Loads - {parsed.get('origin', '')} to {parsed.get('destination', '')}"
-            html_body = self.email_channel.format_load_list_email(loads, carrier_name)
+            return response
 
-            self.email_channel.send_email(
-                to_email=from_email,
-                subject=subject,
-                body=html_body,
-                body_type="HTML"
-            )
-
-            return f"Sent {len(loads)} loads to {from_email}"
-
-        return "Email processed"
+        return "Thank you for your message. Our dispatch team will respond shortly."
 
     def _alert_dispatch_booking(self, carrier: Dict, load: Dict):
-        """Alert dispatch team about booking request"""
-        # In production, send email or SMS to dispatch
-        # For now, just print
-        print("\n" + "="*50)
-        print("🚨 BOOKING REQUEST ALERT")
-        print("="*50)
-        print(f"Carrier: {carrier.get('company_name') or 'Unknown'}")
-        print(f"Phone: {carrier.get('phone')}")
-        print(f"Load: {load.get('load_id')}")
-        print(f"Lane: {load.get('origin')} → {load.get('destination')}")
-        print(f"Rate: ${load.get('rate'):,}")
-        print(f"\nCall carrier at {carrier.get('phone')} to confirm!")
-        print("="*50 + "\n")
-
-    def test_conversation(self):
-        """Test the chatbot with sample conversations"""
-        print("\n" + "="*60)
-        print("TESTING EAGLE CARRIER CHATBOT")
-        print("="*60 + "\n")
-
-        test_cases = [
-            ("+14045551234", "Atlanta loads"),
-            ("+14045551234", "Atlanta to Dallas dry van"),
-            ("+14045551234", "Book L12345"),
-            ("+17705555678", "Miami reefer"),
-        ]
-
-        for phone, message in test_cases:
-            print(f"\n📱 Carrier {phone}: {message}")
-            print("-" * 60)
-
-            response = self.handle_sms(phone, message)
-            print(f"🦅 Eagle Response:\n{response}")
-            print("-" * 60)
-
-        print("\n✅ Test complete!\n")
-
-
-def main():
-    """Main entry point for testing"""
-
-    # Test configuration (using mock services)
-    config = {
-        'database_path': 'data/carriers.db',
-        'use_mock_sms': True,  # Set to False when you have Twilio credentials
-        'use_mock_sheets': True,  # Set to False when you have Google Sheets set up
-
-        # Add these when ready for production:
-        # 'openai_api_key': 'sk-...',
-        # 'twilio_account_sid': 'AC...',
-        # 'twilio_auth_token': '...',
-        # 'twilio_phone_number': '+17709651242',
-        # 'google_credentials_path': 'config/google-service-account.json',
-        # 'google_sheet_url': 'https://docs.google.com/spreadsheets/d/...'
-    }
-
-    # Create chatbot
-    chatbot = CarrierChatbot(config)
-
-    # Run test
-    chatbot.test_conversation()
-
-
-if __name__ == '__main__':
-    main()
+        """
+        Alert dispatch team of booking request (internal)
+        In production, this would send email/SMS to dispatch
+        """
+        print(f"\n📬 BOOKING REQUEST ALERT")
+        print(f"Carrier: {carrier.get('name', 'Unknown')} ({carrier.get('phone', carrier.get('email'))})")
+        print(f"Load: {load['load_id']} - {load['origin']} to {load['destination']}")
+        print(f"Rate: ${load['rate']:,}\n")
