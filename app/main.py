@@ -14,6 +14,7 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from app.database import Database
 from app.ai_engine import AIEngine
 from channels.sms import SMSChannel, MockSMSChannel
+from channels.ringcentral_sms import RingCentralSMSChannel, MockRingCentralSMSChannel
 from channels.email import EmailChannel, MockEmailChannel
 from integrations.google_sheets import GoogleSheetsLoader, MockSheetsLoader, SqliteLoadsLoader
 
@@ -50,14 +51,25 @@ class CarrierChatbot:
         self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
 
         # SMS Channel
+        use_ringcentral = os.getenv('USE_RINGCENTRAL', 'false').lower() == 'true'
+
         if use_mock_sms:
-            self.sms_channel = MockSMSChannel()
+            if use_ringcentral:
+                self.sms_channel = MockRingCentralSMSChannel()
+            else:
+                self.sms_channel = MockSMSChannel()
         else:
-            self.sms_channel = SMSChannel(
-                account_sid=self.config.get('twilio_account_sid'),
-                auth_token=self.config.get('twilio_auth_token'),
-                phone_number=self.config.get('twilio_phone_number')
-            )
+            if use_ringcentral:
+                # Use RingCentral for SMS
+                self.sms_channel = RingCentralSMSChannel()
+                self.sms_channel.login()
+            else:
+                # Use Twilio for SMS
+                self.sms_channel = SMSChannel(
+                    account_sid=self.config.get('twilio_account_sid'),
+                    auth_token=self.config.get('twilio_auth_token'),
+                    phone_number=self.config.get('twilio_phone_number')
+                )
 
         # Email Channel (Phase 2)
         if use_mock_email:
