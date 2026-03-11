@@ -71,6 +71,39 @@ def sms_webhook():
     return bot.sms_channel.create_twiml_response(response)
 
 
+@app.route('/webhook/ringcentral', methods=['POST'])
+def ringcentral_webhook():
+    """
+    RingCentral SMS webhook handler
+    Receives incoming SMS messages from RingCentral
+    """
+    bot = init_chatbot()
+
+    # Parse RingCentral webhook payload (JSON format)
+    data = request.json
+
+    # RingCentral sends data in a specific format
+    # Extract SMS details from the webhook payload
+    try:
+        # RingCentral webhook structure
+        body = data.get('body', {})
+        from_phone = body.get('from', {}).get('phoneNumber', '')
+        message_text = body.get('subject', '')  # SMS text is in 'subject' field
+
+        if from_phone and message_text:
+            # Process the message
+            response = bot.handle_sms(from_phone, message_text)
+
+            # Send response via RingCentral
+            bot.sms_channel.send_sms(from_phone, response)
+
+        return jsonify({'status': 'success'}), 200
+
+    except Exception as e:
+        print(f"✗ RingCentral webhook error: {e}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 @app.route('/webhook/email', methods=['POST'])
 def email_webhook():
     """
