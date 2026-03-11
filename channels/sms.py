@@ -4,7 +4,6 @@ Handles Twilio integration for SMS communication
 """
 
 import os
-<<<<<<< HEAD
 from typing import Dict
 
 try:
@@ -14,12 +13,10 @@ except ImportError:
     Client = None
     MessagingResponse = None
 
-=======
 from twilio.rest import Client
 from twilio.twiml.messaging_response import MessagingResponse
 from typing import Dict
 
->>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
 class SMSChannel:
     def __init__(self, account_sid: str = None, auth_token: str = None, phone_number: str = None):
         """
