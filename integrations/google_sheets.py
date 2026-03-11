@@ -3,6 +3,7 @@ Google Sheets integration for Eagle Carrier Chatbot
 Reads available loads from Google Sheets
 """
 
+<<<<<<< HEAD
 from typing import List, Dict, Optional
 from datetime import datetime
 
@@ -13,6 +14,13 @@ except ImportError:
     gspread = None
     Credentials = None
 
+=======
+import gspread
+from google.oauth2.service_account import Credentials
+from typing import List, Dict, Optional
+from datetime import datetime
+
+>>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
 class GoogleSheetsLoader:
     def __init__(self, credentials_path: str, sheet_url: str):
         """

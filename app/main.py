@@ -13,7 +13,10 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from app.database import Database
 from app.ai_engine import AIEngine
+<<<<<<< HEAD
 from app.conversation_engine import IntelligentConversationEngine
+=======
+>>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
 from channels.sms import SMSChannel, MockSMSChannel
 from channels.ringcentral_sms import RingCentralSMSChannel, MockRingCentralSMSChannel
 from channels.email import EmailChannel, MockEmailChannel
@@ -48,12 +51,18 @@ class CarrierChatbot:
         db_path = self.config.get('database_path', 'data/carriers.db')
         self.database = Database(db_path)
 
+<<<<<<< HEAD
         # AI Engine (legacy)
         self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
 
         # Intelligent Conversation Engine (Phase 1)
         self.conversation_engine = None  # Will initialize after sheets_loader
 
+=======
+        # AI Engine
+        self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
+
+>>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
         # SMS Channel
         use_ringcentral = os.getenv('USE_RINGCENTRAL', 'false').lower() == 'true'
 
@@ -105,12 +114,15 @@ class CarrierChatbot:
             )
             self.sheets_loader.connect()
 
+<<<<<<< HEAD
         # Initialize conversation engine AFTER sheets_loader
         self.conversation_engine = IntelligentConversationEngine(
             database=self.database,
             sheets_loader=self.sheets_loader
         )
 
+=======
+>>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
         print("✅ Eagle Carrier Chatbot initialized!\n")
 
     def handle_sms(self, from_phone: str, message: str) -> str:
@@ -159,6 +171,7 @@ class CarrierChatbot:
             carrier_id = carrier['id']
             carrier_name = carrier.get('name') or "there"
 
+<<<<<<< HEAD
         # ===== PHASE 1: INTELLIGENT CONVERSATION ENGINE =====
         # Get conversation state
         conv_state = self.conversation_engine.get_conversation_state(carrier_id)
@@ -186,6 +199,72 @@ class CarrierChatbot:
             loads_shown=0,  # Will be updated by conversation engine
             response_time_seconds=(datetime.now() - start_time).seconds
         )
+=======
+        # Parse message with AI
+        parsed = self.ai_engine.parse_carrier_request(message)
+        intent = parsed.get('intent', 'search_loads')
+
+        response = ""
+
+        if intent == 'book_load':
+            # Booking request
+            load_id = parsed.get('load_id')
+            load = self.sheets_loader.get_load_by_id(load_id)
+
+            if load:
+                # Log booking request
+                self.database.log_booking_request(carrier_id, load_id)
+
+                # Alert dispatch (in production, send email/SMS to dispatch)
+                self._alert_dispatch_booking(carrier, load)
+
+                response = self.ai_engine.generate_response(
+                    carrier_name, [], 'book_load', 'sms'
+                )
+            else:
+                response = f"Load {load_id} not found. Reply LOADS to see available loads."
+
+        elif intent == 'search_loads':
+            # Search for loads
+            loads = self.sheets_loader.search_loads(
+                origin=parsed.get('origin'),
+                destination=parsed.get('destination'),
+                equipment_type=parsed.get('equipment_type'),
+                pickup_date=parsed.get('pickup_date')
+            )
+
+            # Generate response
+            response = self.ai_engine.generate_response(
+                carrier_name, loads, 'search_loads', 'sms'
+            )
+
+            # Log query
+            load_ids = [load.get('load_id') for load in loads]
+            self.database.log_query(
+                carrier_id=carrier_id,
+                channel='sms',
+                raw_message=message,
+                intent=intent,
+                origin=parsed.get('origin'),
+                destination=parsed.get('destination'),
+                equipment_type=parsed.get('equipment_type'),
+                pickup_date=parsed.get('pickup_date'),
+                loads_shown=len(loads),
+                load_ids_shown=load_ids,
+                response_time_seconds=(datetime.now() - start_time).seconds
+            )
+
+        else:
+            # General question
+            response = """Eagle Transportation here!
+
+Text me:
+• City names for loads (e.g., "Atlanta loads")
+• "Atlanta to Dallas dry van"
+• "Book L12345" to request a load
+
+Questions? Call 770-965-1242"""
+>>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
 
         return response
 

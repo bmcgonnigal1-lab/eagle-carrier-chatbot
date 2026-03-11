@@ -7,20 +7,28 @@ import os
 import json
 import re
 from typing import Dict, List, Optional, Tuple
+<<<<<<< HEAD
 
 try:
     from openai import OpenAI
 except ImportError:
     OpenAI = None  # Will fall back to regex parsing
+=======
+from openai import OpenAI
+>>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
 
 class AIEngine:
     def __init__(self, api_key: str = None):
         """Initialize AI engine with OpenAI"""
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
+<<<<<<< HEAD
         if OpenAI and self.api_key:
             self.client = OpenAI(api_key=self.api_key)
         else:
             self.client = None
+=======
+        self.client = OpenAI(api_key=self.api_key) if self.api_key else None
+>>>>>>> f21e37ce4adfea5d9a4be9d9b37a5fa74ba6297b
 
     def parse_carrier_request(self, message: str) -> Dict:
         """
