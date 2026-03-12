@@ -476,3 +476,48 @@ if __name__ == '__main__':
     """)
 
     app.run(host='0.0.0.0', port=port, debug=debug)
+
+@app.route('/admin/fix-schema', methods=['GET'])
+def fix_schema():
+    """One-time migration to add missing columns"""
+    try:
+        db = get_database()
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+            ALTER TABLE carriers 
+            ADD COLUMN IF NOT EXISTS dot_number VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS mc_number VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS email VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS phone VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS contact_name VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS company_name VARCHAR(255),
+            ADD COLUMN IF NOT EXISTS address TEXT,
+            ADD COLUMN IF NOT EXISTS city VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS state VARCHAR(50),
+            ADD COLUMN IF NOT EXISTS zip VARCHAR(20),
+            ADD COLUMN IF NOT EXISTS preferred_lanes TEXT,
+            ADD COLUMN IF NOT EXISTS equipment_types TEXT,
+            ADD COLUMN IF NOT EXISTS notes TEXT,
+            ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        """)
+        
+        conn.commit()
+        
+        cursor.execute("SELECT COUNT(*) FROM carriers")
+        count = cursor.fetchone()[0]
+        
+        db.return_connection(conn)
+        
+        return jsonify({
+            'status': 'success',
+            'message': 'Schema updated successfully',
+            'carrier_count': count
+        })
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
