@@ -26,7 +26,8 @@ class ComprehensiveCarrierDatabase:
         self.db_path = db_path
 
         # Create data directory if it doesn't exist
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        if self.db_path:
+            os.makedirs(os.path.dirname(db_path), exist_ok=True)
 
         self.init_database()
 
