@@ -44,22 +44,35 @@ class CarrierChatbot:
         # Initialize components
         print("\n🦅 Initializing Eagle Carrier Chatbot...")
 
-        # Database
-        db_path = self.config.get('database_path', 'data/carriers.db')
+        # Database (auto-detects PostgreSQL vs SQLite)
         self.database = get_database()
 
-        # AI Engine
+        # AI Engine (legacy)
         self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
 
+        # Intelligent Conversation Engine (Phase 1)
+        self.conversation_engine = None  # Will initialize after sheets_loader
+
         # SMS Channel
+        use_ringcentral = os.getenv('USE_RINGCENTRAL', 'false').lower() == 'true'
+
         if use_mock_sms:
-            self.sms_channel = MockSMSChannel()
+            if use_ringcentral:
+                self.sms_channel = MockRingCentralSMSChannel()
+            else:
+                self.sms_channel = MockSMSChannel()
         else:
-            self.sms_channel = SMSChannel(
-                account_sid=self.config.get('twilio_account_sid'),
-                auth_token=self.config.get('twilio_auth_token'),
-                phone_number=self.config.get('twilio_phone_number')
-            )
+            if use_ringcentral:
+                # Use RingCentral for SMS
+                self.sms_channel = RingCentralSMSChannel()
+                self.sms_channel.login()
+            else:
+                # Use Twilio for SMS
+                self.sms_channel = SMSChannel(
+                    account_sid=self.config.get('twilio_account_sid'),
+                    auth_token=self.config.get('twilio_auth_token'),
+                    phone_number=self.config.get('twilio_phone_number')
+                )
 
         # Email Channel (Phase 2)
         if use_mock_email:
@@ -74,14 +87,28 @@ class CarrierChatbot:
 
         # Load Data Source
         if use_mock_sheets:
-            self.sheets_loader = MockSheetsLoader()
+            # Try SqliteLoadsLoader first, fall back to MockSheetsLoader
+            # Check both static/loads.db and data/loads.db
+            self.sheets_loader = SqliteLoadsLoader('static/loads.db')
+            if not self.sheets_loader.connect():
+                # Try data/loads.db
+                self.sheets_loader = SqliteLoadsLoader('data/loads.db')
+                if not self.sheets_loader.connect():
+                    # If no database found, use mock data
+                    self.sheets_loader = MockSheetsLoader()
+                    self.sheets_loader.connect()
         else:
             self.sheets_loader = GoogleSheetsLoader(
                 credentials_path=self.config.get('google_credentials_path'),
                 sheet_url=self.config.get('google_sheet_url')
             )
+            self.sheets_loader.connect()
 
-        self.sheets_loader.connect()
+        # Initialize conversation engine AFTER sheets_loader
+        self.conversation_engine = IntelligentConversationEngine(
+            database=self.database,
+            sheets_loader=self.sheets_loader
+        )
 
         print("✅ Eagle Carrier Chatbot initialized!\n")
 
@@ -109,80 +136,56 @@ class CarrierChatbot:
         carrier = self.database.get_carrier_by_phone(from_phone)
         if not carrier:
             # New carrier - create profile
-            carrier_id = self.database.create_carrier(
-                phone=from_phone,
-                status='active',
-                onboarding_complete=False
-            )
-            carrier = self.database.get_carrier_by_phone(from_phone)
-            carrier_name = "there"
+            try:
+                carrier_id = self.database.create_carrier(
+                    phone=from_phone,
+                    status='active',
+                    onboarding_complete=False
+                )
+                carrier = self.database.get_carrier_by_phone(from_phone)
+                carrier_name = "there"
+            except Exception as e:
+                # Carrier might already exist from a race condition
+                print(f"Note: Carrier creation skipped ({e})")
+                carrier = self.database.get_carrier_by_phone(from_phone)
+                if carrier:
+                    carrier_id = carrier['id']
+                    carrier_name = carrier.get('name') or "there"
+                else:
+                    # Fallback if something went wrong
+                    return "Please try again in a moment."
         else:
             carrier_id = carrier['id']
             carrier_name = carrier.get('name') or "there"
 
-        # Parse message with AI
-        parsed = self.ai_engine.parse_carrier_request(message)
-        intent = parsed.get('intent', 'search_loads')
+        # ===== PHASE 1: INTELLIGENT CONVERSATION ENGINE =====
+        # Get conversation state
+        conv_state = self.conversation_engine.get_conversation_state(carrier_id)
 
-        response = ""
+        # Detect intent with context awareness
+        intent_data = self.conversation_engine.detect_intent(message, carrier, conv_state)
 
-        if intent == 'book_load':
-            # Booking request
-            load_id = parsed.get('load_id')
-            load = self.sheets_loader.get_load_by_id(load_id)
+        # Generate intelligent, context-aware response
+        response = self.conversation_engine.generate_response(
+            carrier=carrier,
+            intent_data=intent_data,
+            state=conv_state,
+            channel='sms'
+        )
 
-            if load:
-                # Log booking request
-                self.database.log_booking_request(carrier_id, load_id)
-
-                # Alert dispatch (in production, send email/SMS to dispatch)
-                self._alert_dispatch_booking(carrier, load)
-
-                response = self.ai_engine.generate_response(
-                    carrier_name, [], 'book_load', 'sms'
-                )
-            else:
-                response = f"Load {load_id} not found. Reply LOADS to see available loads."
-
-        elif intent == 'search_loads':
-            # Search for loads
-            loads = self.sheets_loader.search_loads(
-                origin=parsed.get('origin'),
-                destination=parsed.get('destination'),
-                equipment_type=parsed.get('equipment_type'),
-                pickup_date=parsed.get('pickup_date')
-            )
-
-            # Generate response
-            response = self.ai_engine.generate_response(
-                carrier_name, loads, 'search_loads', 'sms'
-            )
-
-            # Log query
-            load_ids = [load.get('load_id') for load in loads]
-            self.database.log_query(
-                carrier_id=carrier_id,
-                channel='sms',
-                raw_message=message,
-                parsed_intent=intent,
-                parsed_entities={
-                    'origin': parsed.get('origin'),
-                    'destination': parsed.get('destination'),
-                    'equipment_type': parsed.get('equipment_type')
-                },
-                results_count=len(loads)
-            )
-
-        else:
-            # General question
-            response = """Eagle Transportation here!
-
-Text me:
-• City names for loads (e.g., "Atlanta loads")
-• "Atlanta to Dallas dry van"
-• "Book L12345" to request a load
-
-Questions? Call 770-965-1242"""
+        # Log query - CORRECTED to match database_postgres.py signature
+        self.database.log_query(
+            carrier_id=carrier_id,
+            channel='sms',
+            raw_message=message,
+            parsed_intent=intent_data.get('intent'),
+            parsed_entities={
+                'origin': intent_data.get('origin'),
+                'destination': intent_data.get('destination'),
+                'equipment_type': intent_data.get('equipment_type')
+            },
+            results_count=0  # Will be updated by conversation engine if needed
+        )
 
         return response
 
@@ -261,8 +264,7 @@ Questions? Call 770-965-1242"""
                 pickup_date=parsed.get('pickup_date')
             )
 
-            # Log query
-            load_ids = [load.get('load_id') for load in loads]
+            # Log query - CORRECTED to match database_postgres.py signature
             self.database.log_query(
                 carrier_id=carrier_id,
                 channel='email',
@@ -271,10 +273,16 @@ Questions? Call 770-965-1242"""
                 parsed_entities={
                     'origin': parsed.get('origin'),
                     'destination': parsed.get('destination'),
-                    'equipment_type': parsed.get('equipment_type')
+                    'equipment_type': parsed.get('equipment_type'),
+                    'pickup_date': parsed.get('pickup_date')
+                },
+                search_criteria={
+                    'origin': parsed.get('origin'),
+                    'destination': parsed.get('destination'),
+                    'equipment_type': parsed.get('equipment_type'),
+                    'pickup_date': parsed.get('pickup_date')
                 },
                 results_count=len(loads)
-            )
             )
 
             # Send email with formatted load list
