@@ -1,11 +1,18 @@
 """
 Intelligence Engine for Eagle Carrier Chatbot
 Analytics, scoring, and insights for carrier behavior
+PostgreSQL-compatible version
 """
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional
 import json
+
+# Import for PostgreSQL cursor
+try:
+    from psycopg2.extras import RealDictCursor
+except ImportError:
+    RealDictCursor = None
 
 
 class IntelligenceEngine:
@@ -17,6 +24,13 @@ class IntelligenceEngine:
             database: Database instance
         """
         self.db = database
+
+    def _get_cursor(self, conn):
+        """Get appropriate cursor based on database type"""
+        if RealDictCursor:
+            return conn.cursor(cursor_factory=RealDictCursor)
+        else:
+            return conn.cursor()
 
     # ===== CARRIER SCORING =====
 
@@ -156,80 +170,82 @@ class IntelligenceEngine:
             }
         """
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        # Get carrier queries
-        cursor.execute('''
-            SELECT * FROM carrier_queries
-            WHERE carrier_id = ?
-            ORDER BY timestamp DESC
-        ''', (carrier_id,))
+        try:
+            # Get carrier queries
+            cursor.execute('''
+                SELECT * FROM carrier_queries
+                WHERE carrier_id = %s
+                ORDER BY timestamp DESC
+            ''', (carrier_id,))
 
-        queries = [dict(row) for row in cursor.fetchall()]
-        conn.close()
+            queries = [dict(row) for row in cursor.fetchall()]
 
-        if not queries:
+            if not queries:
+                return {
+                    'preferred_lanes': [],
+                    'preferred_equipment': [],
+                    'peak_days': [],
+                    'avg_rate_range': None,
+                    'booking_patterns': {}
+                }
+
+            # Analyze preferred lanes
+            lane_counts = {}
+            for q in queries:
+                origin = q.get('origin')
+                destination = q.get('destination')
+                if origin and destination:
+                    lane = f"{origin}-{destination}"
+                    lane_counts[lane] = lane_counts.get(lane, 0) + 1
+
+            preferred_lanes = [
+                {'lane': lane, 'count': count}
+                for lane, count in sorted(lane_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+            ]
+
+            # Analyze equipment preferences
+            equipment_counts = {}
+            for q in queries:
+                equipment = q.get('equipment_type')
+                if equipment:
+                    equipment_counts[equipment] = equipment_counts.get(equipment, 0) + 1
+
+            preferred_equipment = [
+                {'type': equip, 'count': count}
+                for equip, count in sorted(equipment_counts.items(), key=lambda x: x[1], reverse=True)
+            ]
+
+            # Analyze peak days
+            day_counts = {}
+            for q in queries:
+                try:
+                    timestamp = datetime.fromisoformat(q.get('timestamp'))
+                    day = timestamp.strftime('%A')
+                    day_counts[day] = day_counts.get(day, 0) + 1
+                except:
+                    pass
+
+            peak_days = sorted(day_counts.items(), key=lambda x: x[1], reverse=True)[:3]
+            peak_days = [day for day, count in peak_days]
+
+            # Booking patterns
+            booking_rate = self._get_booking_rate(carrier_id)
+
             return {
-                'preferred_lanes': [],
-                'preferred_equipment': [],
-                'peak_days': [],
-                'avg_rate_range': None,
-                'booking_patterns': {}
+                'preferred_lanes': preferred_lanes,
+                'preferred_equipment': preferred_equipment,
+                'peak_days': peak_days,
+                'avg_rate_range': None,  # Future: track rate preferences
+                'booking_patterns': {
+                    'booking_rate': booking_rate,
+                    'total_queries': len(queries),
+                    'total_bookings': len([q for q in queries if q.get('intent') == 'book_load'])
+                }
             }
-
-        # Analyze preferred lanes
-        lane_counts = {}
-        for q in queries:
-            origin = q.get('origin')
-            destination = q.get('destination')
-            if origin and destination:
-                lane = f"{origin}-{destination}"
-                lane_counts[lane] = lane_counts.get(lane, 0) + 1
-
-        preferred_lanes = [
-            {'lane': lane, 'count': count}
-            for lane, count in sorted(lane_counts.items(), key=lambda x: x[1], reverse=True)[:5]
-        ]
-
-        # Analyze equipment preferences
-        equipment_counts = {}
-        for q in queries:
-            equipment = q.get('equipment_type')
-            if equipment:
-                equipment_counts[equipment] = equipment_counts.get(equipment, 0) + 1
-
-        preferred_equipment = [
-            {'type': equip, 'count': count}
-            for equip, count in sorted(equipment_counts.items(), key=lambda x: x[1], reverse=True)
-        ]
-
-        # Analyze peak days
-        day_counts = {}
-        for q in queries:
-            try:
-                timestamp = datetime.fromisoformat(q.get('timestamp'))
-                day = timestamp.strftime('%A')
-                day_counts[day] = day_counts.get(day, 0) + 1
-            except:
-                pass
-
-        peak_days = sorted(day_counts.items(), key=lambda x: x[1], reverse=True)[:3]
-        peak_days = [day for day, count in peak_days]
-
-        # Booking patterns
-        booking_rate = self._get_booking_rate(carrier_id)
-
-        return {
-            'preferred_lanes': preferred_lanes,
-            'preferred_equipment': preferred_equipment,
-            'peak_days': peak_days,
-            'avg_rate_range': None,  # Future: track rate preferences
-            'booking_patterns': {
-                'booking_rate': booking_rate,
-                'total_queries': len(queries),
-                'total_bookings': len([q for q in queries if q.get('intent') == 'book_load'])
-            }
-        }
+        finally:
+            self.db.return_connection(conn)
 
     def _get_booking_rate(self, carrier_id: int) -> float:
         """Calculate booking rate for carrier"""
@@ -258,37 +274,39 @@ class IntelligenceEngine:
             ]
         """
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        since_date = (datetime.now() - timedelta(days=days)).isoformat()
+        try:
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
 
-        cursor.execute('''
-            SELECT
-                origin,
-                destination,
-                COUNT(*) as query_count,
-                COUNT(DISTINCT carrier_id) as carrier_count
-            FROM carrier_queries
-            WHERE
-                timestamp >= ?
-                AND origin IS NOT NULL
-                AND destination IS NOT NULL
-            GROUP BY origin, destination
-            HAVING query_count >= ?
-            ORDER BY query_count DESC
-            LIMIT 20
-        ''', (since_date, min_queries))
+            cursor.execute('''
+                SELECT
+                    origin,
+                    destination,
+                    COUNT(*) as query_count,
+                    COUNT(DISTINCT carrier_id) as carrier_count
+                FROM carrier_queries
+                WHERE
+                    timestamp >= %s
+                    AND origin IS NOT NULL
+                    AND destination IS NOT NULL
+                GROUP BY origin, destination
+                HAVING COUNT(*) >= %s
+                ORDER BY query_count DESC
+                LIMIT 20
+            ''', (since_date, min_queries))
 
-        hot_lanes = []
-        for row in cursor.fetchall():
-            hot_lanes.append({
-                'lane': f"{row['origin']}-{row['destination']}",
-                'query_count': row['query_count'],
-                'carrier_count': row['carrier_count']
-            })
+            hot_lanes = []
+            for row in cursor.fetchall():
+                hot_lanes.append({
+                    'lane': f"{row['origin']}-{row['destination']}",
+                    'query_count': row['query_count'],
+                    'carrier_count': row['carrier_count']
+                })
 
-        conn.close()
-        return hot_lanes
+            return hot_lanes
+        finally:
+            self.db.return_connection(conn)
 
     # ===== TOP CARRIERS =====
 
@@ -304,31 +322,33 @@ class IntelligenceEngine:
             List of carrier dictionaries with scores
         """
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        if sort_by == 'queries':
-            order_by = 'total_queries DESC'
-        elif sort_by == 'bookings':
-            order_by = 'total_bookings DESC'
-        else:
-            order_by = 'engagement_score DESC'
+        try:
+            if sort_by == 'queries':
+                order_by = 'total_queries DESC'
+            elif sort_by == 'bookings':
+                order_by = 'total_bookings DESC'
+            else:
+                order_by = 'engagement_score DESC'
 
-        cursor.execute(f'''
-            SELECT * FROM carriers
-            ORDER BY {order_by}
-            LIMIT ?
-        ''', (limit,))
+            cursor.execute(f'''
+                SELECT * FROM carriers
+                ORDER BY {order_by}
+                LIMIT %s
+            ''', (limit,))
 
-        carriers = []
-        for row in cursor.fetchall():
-            carrier = dict(row)
-            # Add calculated score
-            score = self.calculate_carrier_score(carrier['id'])
-            carrier['score'] = score
-            carriers.append(carrier)
+            carriers = []
+            for row in cursor.fetchall():
+                carrier = dict(row)
+                # Add calculated score
+                score = self.calculate_carrier_score(carrier['id'])
+                carrier['score'] = score
+                carriers.append(carrier)
 
-        conn.close()
-        return carriers
+            return carriers
+        finally:
+            self.db.return_connection(conn)
 
     # ===== OVERALL STATS =====
 
@@ -346,161 +366,167 @@ class IntelligenceEngine:
             }
         """
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        # Total carriers
-        cursor.execute('SELECT COUNT(*) as count FROM carriers')
-        total_carriers = cursor.fetchone()['count']
+        try:
+            # Total carriers
+            cursor.execute('SELECT COUNT(*) as count FROM carriers')
+            total_carriers = cursor.fetchone()['count']
 
-        # Active carriers (last 7 days)
-        seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
-        cursor.execute('''
-            SELECT COUNT(*) as count FROM carriers
-            WHERE last_active_date >= ?
-        ''', (seven_days_ago,))
-        active_carriers_7d = cursor.fetchone()['count']
+            # Active carriers (last 7 days)
+            seven_days_ago = (datetime.now() - timedelta(days=7)).isoformat()
+            cursor.execute('''
+                SELECT COUNT(*) as count FROM carriers
+                WHERE last_active_date >= %s
+            ''', (seven_days_ago,))
+            active_carriers_7d = cursor.fetchone()['count']
 
-        # Total queries
-        cursor.execute('SELECT COUNT(*) as count FROM carrier_queries')
-        total_queries = cursor.fetchone()['count']
+            # Total queries
+            cursor.execute('SELECT COUNT(*) as count FROM carrier_queries')
+            total_queries = cursor.fetchone()['count']
 
-        # Total bookings
-        cursor.execute('SELECT COUNT(*) as count FROM booking_requests')
-        total_bookings = cursor.fetchone()['count']
+            # Total bookings
+            cursor.execute('SELECT COUNT(*) as count FROM booking_requests')
+            total_bookings = cursor.fetchone()['count']
 
-        # Average engagement score
-        cursor.execute('SELECT AVG(engagement_score) as avg FROM carriers')
-        avg_engagement = cursor.fetchone()['avg'] or 0
+            # Average engagement score
+            cursor.execute('SELECT AVG(engagement_score) as avg FROM carriers')
+            avg_engagement = cursor.fetchone()['avg'] or 0
 
-        conn.close()
-
-        return {
-            'total_carriers': total_carriers,
-            'active_carriers_7d': active_carriers_7d,
-            'total_queries': total_queries,
-            'total_bookings': total_bookings,
-            'avg_engagement_score': round(avg_engagement, 1)
-        }
+            return {
+                'total_carriers': total_carriers,
+                'active_carriers_7d': active_carriers_7d,
+                'total_queries': total_queries,
+                'total_bookings': total_bookings,
+                'avg_engagement_score': round(avg_engagement, 1)
+            }
+        finally:
+            self.db.return_connection(conn)
 
     # ===== RECENT ACTIVITY =====
 
     def get_recent_queries(self, limit: int = 20) -> List[Dict]:
         """Get recent carrier queries with carrier info"""
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        cursor.execute('''
-            SELECT
-                cq.*,
-                c.name as carrier_name,
-                c.phone as carrier_phone
-            FROM carrier_queries cq
-            LEFT JOIN carriers c ON cq.carrier_id = c.id
-            ORDER BY cq.timestamp DESC
-            LIMIT ?
-        ''', (limit,))
+        try:
+            cursor.execute('''
+                SELECT
+                    cq.*,
+                    c.name as carrier_name,
+                    c.phone as carrier_phone
+                FROM carrier_queries cq
+                LEFT JOIN carriers c ON cq.carrier_id = c.id
+                ORDER BY cq.timestamp DESC
+                LIMIT %s
+            ''', (limit,))
 
-        queries = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        return queries
+            queries = [dict(row) for row in cursor.fetchall()]
+            return queries
+        finally:
+            self.db.return_connection(conn)
 
     def get_carrier_history(self, carrier_id: int, days: int = 90) -> List[Dict]:
         """Get carrier query history"""
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        since_date = (datetime.now() - timedelta(days=days)).isoformat()
+        try:
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
 
-        cursor.execute('''
-            SELECT * FROM carrier_queries
-            WHERE carrier_id = ? AND timestamp >= ?
-            ORDER BY timestamp DESC
-        ''', (carrier_id, since_date))
+            cursor.execute('''
+                SELECT * FROM carrier_queries
+                WHERE carrier_id = %s AND timestamp >= %s
+                ORDER BY timestamp DESC
+            ''', (carrier_id, since_date))
 
-        history = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        return history
+            history = [dict(row) for row in cursor.fetchall()]
+            return history
+        finally:
+            self.db.return_connection(conn)
 
     # ===== ANALYTICS =====
 
     def get_daily_activity(self, days: int = 30) -> List[Dict]:
         """Get daily query counts for the last N days"""
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        since_date = (datetime.now() - timedelta(days=days)).isoformat()
+        try:
+            since_date = (datetime.now() - timedelta(days=days)).isoformat()
 
-        cursor.execute('''
-            SELECT
-                DATE(timestamp) as date,
-                COUNT(*) as query_count,
-                COUNT(DISTINCT carrier_id) as carrier_count
-            FROM carrier_queries
-            WHERE timestamp >= ?
-            GROUP BY DATE(timestamp)
-            ORDER BY date ASC
-        ''', (since_date,))
+            cursor.execute('''
+                SELECT
+                    DATE(timestamp) as date,
+                    COUNT(*) as query_count,
+                    COUNT(DISTINCT carrier_id) as carrier_count
+                FROM carrier_queries
+                WHERE timestamp >= %s
+                GROUP BY DATE(timestamp)
+                ORDER BY date ASC
+            ''', (since_date,))
 
-        activity = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        return activity
+            activity = [dict(row) for row in cursor.fetchall()]
+            return activity
+        finally:
+            self.db.return_connection(conn)
 
     def get_equipment_breakdown(self) -> List[Dict]:
         """Get query breakdown by equipment type"""
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        cursor.execute('''
-            SELECT
-                equipment_type,
-                COUNT(*) as query_count
-            FROM carrier_queries
-            WHERE equipment_type IS NOT NULL
-            GROUP BY equipment_type
-            ORDER BY query_count DESC
-        ''', ())
+        try:
+            cursor.execute('''
+                SELECT
+                    equipment_type,
+                    COUNT(*) as query_count
+                FROM carrier_queries
+                WHERE equipment_type IS NOT NULL
+                GROUP BY equipment_type
+                ORDER BY query_count DESC
+            ''')
 
-        breakdown = [dict(row) for row in cursor.fetchall()]
-        conn.close()
-
-        return breakdown
+            breakdown = [dict(row) for row in cursor.fetchall()]
+            return breakdown
+        finally:
+            self.db.return_connection(conn)
 
     def get_geography_stats(self) -> Dict:
         """Get statistics by origin/destination"""
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        # Top origins
-        cursor.execute('''
-            SELECT origin, COUNT(*) as count
-            FROM carrier_queries
-            WHERE origin IS NOT NULL
-            GROUP BY origin
-            ORDER BY count DESC
-            LIMIT 10
-        ''')
-        top_origins = [dict(row) for row in cursor.fetchall()]
+        try:
+            # Top origins
+            cursor.execute('''
+                SELECT origin, COUNT(*) as count
+                FROM carrier_queries
+                WHERE origin IS NOT NULL
+                GROUP BY origin
+                ORDER BY count DESC
+                LIMIT 10
+            ''')
+            top_origins = [dict(row) for row in cursor.fetchall()]
 
-        # Top destinations
-        cursor.execute('''
-            SELECT destination, COUNT(*) as count
-            FROM carrier_queries
-            WHERE destination IS NOT NULL
-            GROUP BY destination
-            ORDER BY count DESC
-            LIMIT 10
-        ''')
-        top_destinations = [dict(row) for row in cursor.fetchall()]
+            # Top destinations
+            cursor.execute('''
+                SELECT destination, COUNT(*) as count
+                FROM carrier_queries
+                WHERE destination IS NOT NULL
+                GROUP BY destination
+                ORDER BY count DESC
+                LIMIT 10
+            ''')
+            top_destinations = [dict(row) for row in cursor.fetchall()]
 
-        conn.close()
-
-        return {
-            'top_origins': top_origins,
-            'top_destinations': top_destinations
-        }
+            return {
+                'top_origins': top_origins,
+                'top_destinations': top_destinations
+            }
+        finally:
+            self.db.return_connection(conn)
 
     # ===== RECOMMENDATIONS =====
 
@@ -514,45 +540,46 @@ class IntelligenceEngine:
             List of carriers sorted by relevance score
         """
         conn = self.db.get_connection()
-        cursor = conn.cursor()
+        cursor = self._get_cursor(conn)
 
-        # Find carriers who have searched this lane or similar
-        query = '''
-            SELECT
-                c.*,
-                COUNT(cq.id) as lane_familiarity,
-                MAX(cq.timestamp) as last_lane_search
-            FROM carriers c
-            LEFT JOIN carrier_queries cq ON c.id = cq.carrier_id
-                AND (cq.origin = ? OR cq.destination = ?)
-        '''
+        try:
+            # Find carriers who have searched this lane or similar
+            query = '''
+                SELECT
+                    c.*,
+                    COUNT(cq.id) as lane_familiarity,
+                    MAX(cq.timestamp) as last_lane_search
+                FROM carriers c
+                LEFT JOIN carrier_queries cq ON c.id = cq.carrier_id
+                    AND (cq.origin = %s OR cq.destination = %s)
+            '''
 
-        params = [origin, destination]
+            params = [origin, destination]
 
-        if equipment_type:
-            query += ' AND cq.equipment_type = ?'
-            params.append(equipment_type)
+            if equipment_type:
+                query += ' AND cq.equipment_type = %s'
+                params.append(equipment_type)
 
-        query += '''
-            GROUP BY c.id
-            ORDER BY lane_familiarity DESC, c.engagement_score DESC
-            LIMIT ?
-        '''
-        params.append(limit)
+            query += '''
+                GROUP BY c.id
+                ORDER BY lane_familiarity DESC, c.engagement_score DESC
+                LIMIT %s
+            '''
+            params.append(limit)
 
-        cursor.execute(query, params)
+            cursor.execute(query, params)
 
-        recommendations = []
-        for row in cursor.fetchall():
-            carrier = dict(row)
-            score = self.calculate_carrier_score(carrier['id'])
-            carrier['score'] = score
-            carrier['recommendation_score'] = carrier['lane_familiarity'] * 10 + (score['total_score'] if score else 0)
-            recommendations.append(carrier)
+            recommendations = []
+            for row in cursor.fetchall():
+                carrier = dict(row)
+                score = self.calculate_carrier_score(carrier['id'])
+                carrier['score'] = score
+                carrier['recommendation_score'] = carrier['lane_familiarity'] * 10 + (score['total_score'] if score else 0)
+                recommendations.append(carrier)
 
-        conn.close()
+            # Sort by recommendation score
+            recommendations.sort(key=lambda x: x['recommendation_score'], reverse=True)
 
-        # Sort by recommendation score
-        recommendations.sort(key=lambda x: x['recommendation_score'], reverse=True)
-
-        return recommendations
+            return recommendations
+        finally:
+            self.db.return_connection(conn)
