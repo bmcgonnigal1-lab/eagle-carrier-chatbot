@@ -13,9 +13,11 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
 from app.database_factory import get_database
 from app.ai_engine import AIEngine
+from app.conversation_engine import IntelligentConversationEngine
 from channels.sms import SMSChannel, MockSMSChannel
+from channels.ringcentral_sms_jwt import RingCentralSMSChannel, MockRingCentralSMSChannel
 from channels.email import EmailChannel, MockEmailChannel
-from integrations.google_sheets import GoogleSheetsLoader, MockSheetsLoader
+from integrations.google_sheets import GoogleSheetsLoader, MockSheetsLoader, SqliteLoadsLoader
 
 
 class CarrierChatbot:
