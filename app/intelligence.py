@@ -27,9 +27,12 @@ class IntelligenceEngine:
 
     def _get_cursor(self, conn):
         """Get appropriate cursor based on database type"""
-        if RealDictCursor:
+        try:
+            # Try to import RealDictCursor and use it
+            from psycopg2.extras import RealDictCursor
             return conn.cursor(cursor_factory=RealDictCursor)
-        else:
+        except (ImportError, TypeError):
+            # Fall back to regular cursor (SQLite)
             return conn.cursor()
 
     # ===== CARRIER SCORING =====
