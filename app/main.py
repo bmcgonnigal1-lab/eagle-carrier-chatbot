@@ -11,7 +11,7 @@ from typing import Dict, Optional
 # Add parent directory to path
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from app.database import Database
+from app.database_factory import get_database
 from app.ai_engine import AIEngine
 from channels.sms import SMSChannel, MockSMSChannel
 from channels.email import EmailChannel, MockEmailChannel
@@ -44,7 +44,7 @@ class CarrierChatbot:
 
         # Database
         db_path = self.config.get('database_path', 'data/carriers.db')
-        self.database = Database(db_path)
+        self.database = get_database()
 
         # AI Engine
         self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
