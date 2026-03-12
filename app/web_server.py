@@ -27,26 +27,21 @@ def init_chatbot():
     """Initialize chatbot instance"""
     global chatbot
     if chatbot is None:
-        # Read from environment variables first, then fall back to config file
-        use_mock_sms = os.getenv('USE_MOCK_SMS', 'true').lower() == 'true'
-        use_mock_email = os.getenv('USE_MOCK_EMAIL', 'true').lower() == 'true'
-        use_mock_sheets = os.getenv('USE_MOCK_SHEETS', 'true').lower() == 'true'
-
         try:
-            # Try to import config (for local development)
+            # Try to import config
             import config
-            use_mock_sms = config.USE_MOCK_SMS
-            use_mock_sheets = config.USE_MOCK_SHEETS
-            use_mock_email = config.USE_MOCK_EMAIL
+            chatbot = CarrierChatbot(
+                use_mock_sms=config.USE_MOCK_SMS,
+                use_mock_sheets=config.USE_MOCK_SHEETS,
+                use_mock_email=config.USE_MOCK_EMAIL
+            )
         except ImportError:
-            # Use environment variables (for production/Render)
-            pass
-
-        chatbot = CarrierChatbot(
-            use_mock_sms=use_mock_sms,
-            use_mock_sheets=use_mock_sheets,
-            use_mock_email=use_mock_email
-        )
+            # Use mock mode if no config
+            chatbot = CarrierChatbot(
+                use_mock_sms=True,
+                use_mock_sheets=True,
+                use_mock_email=True
+            )
     return chatbot
 
 
@@ -69,55 +64,6 @@ def sms_webhook():
 
     # Return TwiML response
     return bot.sms_channel.create_twiml_response(response)
-
-
-@app.route('/webhook/ringcentral', methods=['POST'])
-def ringcentral_webhook():
-    """
-    RingCentral SMS webhook handler
-    Receives incoming SMS messages from RingCentral
-    """
-    # CRITICAL: Handle validation token during webhook subscription setup
-    # RingCentral sends this header once when creating the subscription
-    validation_token = request.headers.get('Validation-Token')
-    if validation_token:
-        print(f"✓ Received validation token, echoing back: {validation_token[:20]}...")
-        response = jsonify({'status': 'validation_ok'})
-        response.headers['Validation-Token'] = validation_token
-        return response, 200
-
-    # Handle actual SMS notifications
-    bot = init_chatbot()
-
-    # Parse RingCentral webhook payload (JSON format)
-    data = request.json
-
-    print(f"📱 Received RingCentral webhook: {data}")
-
-    # RingCentral sends data in a specific format
-    # Extract SMS details from the webhook payload
-    try:
-        # RingCentral webhook structure
-        body = data.get('body', {})
-        from_phone = body.get('from', {}).get('phoneNumber', '')
-        message_text = body.get('subject', '')  # SMS text is in 'subject' field
-
-        print(f"📨 SMS from {from_phone}: {message_text}")
-
-        if from_phone and message_text:
-            # Process the message
-            response = bot.handle_sms(from_phone, message_text)
-
-            print(f"📤 Sending response: {response}")
-
-            # Send response via RingCentral
-            bot.sms_channel.send_sms(from_phone, response)
-
-        return jsonify({'status': 'success'}), 200
-
-    except Exception as e:
-        print(f"✗ RingCentral webhook error: {e}")
-        return jsonify({'status': 'error', 'message': str(e)}), 500
 
 
 @app.route('/webhook/email', methods=['POST'])
@@ -264,107 +210,6 @@ def api_stats():
 
 
 # ===== ADMIN ROUTES =====
-
-@app.route('/admin/list-ringcentral-webhooks', methods=['GET'])
-def list_ringcentral_webhooks():
-    """List all RingCentral webhook subscriptions"""
-    bot = init_chatbot()
-
-    # Check if using RingCentral
-    if not hasattr(bot.sms_channel, 'platform'):
-        return jsonify({
-            'status': 'error',
-            'message': 'RingCentral SMS not configured'
-        }), 400
-
-    try:
-        response = bot.sms_channel.platform.get('/restapi/v1.0/subscription')
-        subscriptions = response.json()
-
-        return jsonify({
-            'status': 'success',
-            'subscriptions': subscriptions.get('records', [])
-        })
-
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Failed to list webhooks: {str(e)}'
-        }), 500
-
-
-@app.route('/admin/delete-ringcentral-webhook/<subscription_id>', methods=['DELETE', 'GET'])
-def delete_ringcentral_webhook(subscription_id):
-    """Delete a RingCentral webhook subscription"""
-    bot = init_chatbot()
-
-    # Check if using RingCentral
-    if not hasattr(bot.sms_channel, 'platform'):
-        return jsonify({
-            'status': 'error',
-            'message': 'RingCentral SMS not configured'
-        }), 400
-
-    try:
-        bot.sms_channel.platform.delete(f'/restapi/v1.0/subscription/{subscription_id}')
-
-        return jsonify({
-            'status': 'success',
-            'message': f'Webhook {subscription_id} deleted successfully'
-        })
-
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Failed to delete webhook: {str(e)}'
-        }), 500
-
-
-@app.route('/admin/setup-ringcentral-webhook', methods=['GET'])
-def setup_ringcentral_webhook():
-    """
-    One-time setup: Create RingCentral webhook subscription
-    Visit this URL once to set up SMS forwarding
-    """
-    bot = init_chatbot()
-
-    # Check if using RingCentral
-    if not hasattr(bot.sms_channel, 'platform'):
-        return jsonify({
-            'status': 'error',
-            'message': 'RingCentral SMS not configured'
-        }), 400
-
-    webhook_url = "https://eagle-carrier-chatbot.onrender.com/webhook/ringcentral"
-
-    try:
-        # Create webhook subscription
-        response = bot.sms_channel.platform.post('/restapi/v1.0/subscription', {
-            'eventFilters': [
-                '/restapi/v1.0/account/~/extension/~/message-store/instant?type=SMS'
-            ],
-            'deliveryMode': {
-                'transportType': 'WebHook',
-                'address': webhook_url
-            }
-        })
-
-        subscription = response.json()
-
-        return jsonify({
-            'status': 'success',
-            'message': 'RingCentral webhook created successfully!',
-            'subscription_id': subscription.get('id'),
-            'webhook_url': webhook_url,
-            'subscription_status': subscription.get('status')
-        })
-
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Failed to create webhook: {str(e)}'
-        }), 500
-
 
 @app.route('/admin/process-emails', methods=['POST'])
 def admin_process_emails():

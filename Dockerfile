@@ -23,17 +23,16 @@ COPY . .
 # Create data directory
 RUN mkdir -p data
 
-# Expose port (Railway uses 8080)
-EXPOSE 8080
+# Expose port
+EXPOSE 5000
 
 # Set environment variables
 ENV FLASK_APP=app.web_server
 ENV PYTHONUNBUFFERED=1
-ENV PORT=8080
 
-# Health check (using correct port)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8080/health')"
+    CMD python -c "import requests; requests.get('http://localhost:5000/health')"
 
 # Run the application
-CMD ["/bin/sh", "-c", "gunicorn minimal_app:app --bind 0.0.0.0:${PORT} --workers 2 --timeout 120"]
+CMD gunicorn app.web_server:app --bind 0.0.0.0:${PORT:-5000} --workers 2 --timeout 120

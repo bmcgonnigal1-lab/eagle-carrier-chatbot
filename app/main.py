@@ -14,9 +14,8 @@ sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 from app.database import Database
 from app.ai_engine import AIEngine
 from channels.sms import SMSChannel, MockSMSChannel
-from channels.ringcentral_sms import RingCentralSMSChannel, MockRingCentralSMSChannel
 from channels.email import EmailChannel, MockEmailChannel
-from integrations.google_sheets import GoogleSheetsLoader, MockSheetsLoader, SqliteLoadsLoader
+from integrations.google_sheets import GoogleSheetsLoader, MockSheetsLoader
 
 
 class CarrierChatbot:
@@ -47,35 +46,18 @@ class CarrierChatbot:
         db_path = self.config.get('database_path', 'data/carriers.db')
         self.database = Database(db_path)
 
-        # AI Engine (legacy)
-        self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
-
-        # Intelligent Conversation Engine (Phase 1)
-        self.conversation_engine = None  # Will initialize after sheets_loader
-
         # AI Engine
         self.ai_engine = AIEngine(api_key=self.config.get('openai_api_key'))
 
         # SMS Channel
-        use_ringcentral = os.getenv('USE_RINGCENTRAL', 'false').lower() == 'true'
-
         if use_mock_sms:
-            if use_ringcentral:
-                self.sms_channel = MockRingCentralSMSChannel()
-            else:
-                self.sms_channel = MockSMSChannel()
+            self.sms_channel = MockSMSChannel()
         else:
-            if use_ringcentral:
-                # Use RingCentral for SMS
-                self.sms_channel = RingCentralSMSChannel()
-                self.sms_channel.login()
-            else:
-                # Use Twilio for SMS
-                self.sms_channel = SMSChannel(
-                    account_sid=self.config.get('twilio_account_sid'),
-                    auth_token=self.config.get('twilio_auth_token'),
-                    phone_number=self.config.get('twilio_phone_number')
-                )
+            self.sms_channel = SMSChannel(
+                account_sid=self.config.get('twilio_account_sid'),
+                auth_token=self.config.get('twilio_auth_token'),
+                phone_number=self.config.get('twilio_phone_number')
+            )
 
         # Email Channel (Phase 2)
         if use_mock_email:
@@ -90,28 +72,14 @@ class CarrierChatbot:
 
         # Load Data Source
         if use_mock_sheets:
-            # Try SqliteLoadsLoader first, fall back to MockSheetsLoader
-            # Check both static/loads.db and data/loads.db
-            self.sheets_loader = SqliteLoadsLoader('static/loads.db')
-            if not self.sheets_loader.connect():
-                # Try data/loads.db
-                self.sheets_loader = SqliteLoadsLoader('data/loads.db')
-                if not self.sheets_loader.connect():
-                    # If no database found, use mock data
-                    self.sheets_loader = MockSheetsLoader()
-                    self.sheets_loader.connect()
+            self.sheets_loader = MockSheetsLoader()
         else:
             self.sheets_loader = GoogleSheetsLoader(
                 credentials_path=self.config.get('google_credentials_path'),
                 sheet_url=self.config.get('google_sheet_url')
             )
-            self.sheets_loader.connect()
 
-        # Initialize conversation engine AFTER sheets_loader
-        self.conversation_engine = IntelligentConversationEngine(
-            database=self.database,
-            sheets_loader=self.sheets_loader
-        )
+        self.sheets_loader.connect()
 
         print("✅ Eagle Carrier Chatbot initialized!\n")
 
@@ -139,55 +107,17 @@ class CarrierChatbot:
         carrier = self.database.get_carrier_by_phone(from_phone)
         if not carrier:
             # New carrier - create profile
-            try:
-                carrier_id = self.database.create_carrier(
-                    phone=from_phone,
-                    status='active',
-                    onboarding_complete=False
-                )
-                carrier = self.database.get_carrier_by_phone(from_phone)
-                carrier_name = "there"
-            except Exception as e:
-                # Carrier might already exist from a race condition
-                print(f"Note: Carrier creation skipped ({e})")
-                carrier = self.database.get_carrier_by_phone(from_phone)
-                if carrier:
-                    carrier_id = carrier['id']
-                    carrier_name = carrier.get('name') or "there"
-                else:
-                    # Fallback if something went wrong
-                    return "Please try again in a moment."
+            carrier_id = self.database.create_carrier(
+                phone=from_phone,
+                status='active',
+                onboarding_complete=False
+            )
+            carrier = self.database.get_carrier_by_phone(from_phone)
+            carrier_name = "there"
         else:
             carrier_id = carrier['id']
             carrier_name = carrier.get('name') or "there"
 
-        #  PHASE 1: INTELLIGENT CONVERSATION ENGINE =====
-        # Get conversation state
-        conv_state = self.conversation_engine.get_conversation_state(carrier_id)
-
-        # Detect intent with context awareness
-        intent_data = self.conversation_engine.detect_intent(message, carrier, conv_state)
-
-        # Generate intelligent, context-aware response
-        response = self.conversation_engine.generate_response(
-            carrier=carrier,
-            intent_data=intent_data,
-            state=conv_state,
-            channel='sms'
-        )
-
-        # Log query
-        self.database.log_query(
-            carrier_id=carrier_id,
-            channel='sms',
-            raw_message=message,
-            intent=intent_data.get('intent'),
-            origin=intent_data.get('origin'),
-            destination=intent_data.get('destination'),
-            equipment_type=intent_data.get('equipment_type'),
-            loads_shown=0,  # Will be updated by conversation engine
-            response_time_seconds=(datetime.now() - start_time).seconds
-        )
         # Parse message with AI
         parsed = self.ai_engine.parse_carrier_request(message)
         intent = parsed.get('intent', 'search_loads')
