@@ -36,4 +36,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8080/health')"
 
 # Run the application
-CMD ["/bin/sh", "-c", "gunicorn app.web_server:app --bind 0.0.0.0:${PORT} --workers 2 --timeout 120"]
+CMD ["/bin/sh", "-c", "gunicorn minimal_app:app --bind 0.0.0.0:${PORT} --workers 2 --timeout 120"]
