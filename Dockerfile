@@ -39,3 +39,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
 # Use shell form with explicit shell to ensure $PORT expansion
 CMD ["/bin/sh", "-c", "gunicorn app.web_server:app --bind 0.0.0.0:${PORT} --workers 2 --timeout 120"]
 
+
