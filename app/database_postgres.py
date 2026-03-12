@@ -1,6 +1,6 @@
 """
 PostgreSQL Database Module for Eagle Carrier Chatbot
-Production-ready version with connection pooling and lazy initialization
+Production-ready version with connection pooling
 """
 
 import psycopg2
@@ -14,7 +14,7 @@ from typing import Optional, Dict, List
 
 class PostgresCarrierDatabase:
     """
-    Production PostgreSQL database with lazy initialization
+    Production PostgreSQL database
 
     Environment variables needed:
     - DATABASE_URL: PostgreSQL connection string
@@ -60,68 +60,171 @@ class PostgresCarrierDatabase:
 
     def init_database(self):
         """Initialize comprehensive database schema"""
-        conn = self.get_connection()
+        # Use pool directly to avoid recursion (get_connection calls _ensure_connected which calls this)
+        conn = self.connection_pool.getconn()
         cursor = conn.cursor()
 
         try:
-            # Create carriers table
+            # ===== TABLE 1: CARRIERS (Core Identity) =====
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS carriers (
+                    -- Primary Identification
                     id SERIAL PRIMARY KEY,
                     uuid TEXT UNIQUE DEFAULT gen_random_uuid()::text,
-                    dot_number VARCHAR(50),
-                    mc_number VARCHAR(50),
+
+                    -- Government Registration
+                    dot_number TEXT UNIQUE,
+                    mc_number TEXT UNIQUE,
+                    ff_number TEXT,
+                    mx_number TEXT,
+                    scac_code TEXT,
+                    ein TEXT,
+
+                    -- Company Information
                     legal_name TEXT NOT NULL,
-                    phone VARCHAR(50) UNIQUE,
-                    email VARCHAR(255),
-                    contact_name VARCHAR(255),
-                    company_name VARCHAR(255),
-                    address TEXT,
-                    city VARCHAR(100),
-                    state VARCHAR(50),
-                    zip VARCHAR(20),
-                    preferred_lanes TEXT,
-                    equipment_types TEXT,
-                    notes TEXT,
+                    dba_name TEXT,
+                    company_type TEXT,
+
+                    -- Contact Information
+                    phone TEXT UNIQUE,
+                    phone_verified INTEGER DEFAULT 0,
+                    email TEXT UNIQUE,
+                    email_verified INTEGER DEFAULT 0,
+                    dispatch_phone TEXT,
+                    dispatch_email TEXT,
+                    accounting_email TEXT,
+                    emergency_phone TEXT,
+
+                    -- Physical Address
+                    physical_address_line1 TEXT,
+                    physical_address_line2 TEXT,
+                    physical_city TEXT,
+                    physical_state TEXT,
+                    physical_zip TEXT,
+                    physical_country TEXT DEFAULT 'US',
+
+                    -- Mailing Address
+                    mailing_address_line1 TEXT,
+                    mailing_address_line2 TEXT,
+                    mailing_city TEXT,
+                    mailing_state TEXT,
+                    mailing_zip TEXT,
+                    mailing_country TEXT DEFAULT 'US',
+
+                    -- Authority & Operating Status
+                    authority_status TEXT,
+                    operating_status TEXT,
+                    out_of_service_date TEXT,
+                    authority_types TEXT,
+                    operating_classifications TEXT,
+                    cargo_carried TEXT,
+
+                    -- Business Details
+                    year_established INTEGER,
+                    business_started_date TEXT,
+                    employees_count INTEGER,
+
+                    -- Status & Onboarding
+                    status TEXT DEFAULT 'pending',
+                    onboarding_status TEXT DEFAULT 'not_started',
+                    onboarding_complete INTEGER DEFAULT 0,
+                    approved_date TEXT,
+                    approved_by INTEGER,
+
+                    -- Verification Status
+                    fmcsa_verified INTEGER DEFAULT 0,
+                    fmcsa_verified_date TEXT,
+                    highway_verified INTEGER DEFAULT 0,
+                    highway_verified_date TEXT,
+
+                    -- Aljex Integration
+                    aljex_carrier_id TEXT,
+                    aljex_sync_status TEXT DEFAULT 'not_synced',
+                    last_aljex_sync TEXT,
+
+                    -- Preferences
+                    preferred_payment_terms TEXT,
+                    payment_method TEXT,
+                    preferred_load_types TEXT,
+                    blacklisted_lanes TEXT,
+                    preferred_contact_method TEXT DEFAULT 'SMS',
+                    send_load_alerts INTEGER DEFAULT 1,
+                    send_rate_confirmations INTEGER DEFAULT 1,
+
+                    -- Internal Notes & Tags
+                    internal_notes TEXT,
+                    tags TEXT,
+
+                    -- Engagement Metrics
                     total_queries INTEGER DEFAULT 0,
                     total_bookings INTEGER DEFAULT 0,
-                    engagement_score REAL DEFAULT 0,
-                    last_active_date TIMESTAMP,
+                    avg_response_time_seconds INTEGER,
+                    engagement_score REAL,
+                    last_active_date TEXT,
+
+                    -- Metadata
+                    source TEXT,
+                    source_reference TEXT,
+
+                    -- Timestamps
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+
+                    CHECK (phone IS NOT NULL OR email IS NOT NULL)
                 )
             ''')
 
-            # Create carrier_queries table
+            # ===== TABLE 2: CONVERSATIONS =====
             cursor.execute('''
-                CREATE TABLE IF NOT EXISTS carrier_queries (
+                CREATE TABLE IF NOT EXISTS conversations (
                     id SERIAL PRIMARY KEY,
                     carrier_id INTEGER REFERENCES carriers(id),
-                    origin VARCHAR(100),
-                    destination VARCHAR(100),
-                    equipment_type VARCHAR(100),
-                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    intent VARCHAR(50),
-                    raw_message TEXT
+                    channel TEXT,
+                    direction TEXT,
+                    message TEXT,
+                    sender TEXT,
+                    intent TEXT,
+                    entities TEXT,
+                    response TEXT,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
 
-            # Create booking_requests table
+            # ===== TABLE 3: QUERIES (Carrier Search History) =====
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS queries (
+                    id SERIAL PRIMARY KEY,
+                    carrier_id INTEGER REFERENCES carriers(id),
+                    channel TEXT,
+                    raw_message TEXT,
+                    parsed_intent TEXT,
+                    parsed_entities TEXT,
+                    search_criteria TEXT,
+                    results_count INTEGER,
+                    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
+            # ===== TABLE 4: BOOKING REQUESTS =====
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS booking_requests (
                     id SERIAL PRIMARY KEY,
                     carrier_id INTEGER REFERENCES carriers(id),
-                    query_id INTEGER REFERENCES carrier_queries(id),
-                    status VARCHAR(50) DEFAULT 'pending',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    load_id TEXT,
+                    status TEXT DEFAULT 'pending',
+                    requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    completed_at TIMESTAMP
                 )
             ''')
 
-            # Create indexes
+            # Create indexes for performance
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_carriers_dot ON carriers(dot_number)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_carriers_mc ON carriers(mc_number)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_carriers_phone ON carriers(phone)')
             cursor.execute('CREATE INDEX IF NOT EXISTS idx_carriers_email ON carriers(email)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_carriers_status ON carriers(status)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_conversations_carrier ON conversations(carrier_id)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_queries_carrier ON queries(carrier_id)')
 
             conn.commit()
             print("✓ Database schema initialized")
@@ -131,7 +234,7 @@ class PostgresCarrierDatabase:
             print(f"✗ Database initialization failed: {e}")
             raise
         finally:
-            self.return_connection(conn)
+            self.connection_pool.putconn(conn)
 
     def close(self):
         """Close all connections in pool"""
@@ -163,36 +266,55 @@ class PostgresCarrierDatabase:
         finally:
             self.return_connection(conn)
 
-    def add_carrier(self, carrier_data: Dict) -> int:
-        """Add a new carrier"""
+    def get_carrier_by_email(self, email: str) -> Optional[Dict]:
+        """Get carrier by email address"""
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor(cursor_factory=RealDictCursor)
+            cursor.execute("SELECT * FROM carriers WHERE email = %s", (email,))
+            result = cursor.fetchone()
+            return dict(result) if result else None
+        finally:
+            self.return_connection(conn)
+
+    def create_carrier(self, phone: str = None, email: str = None, **kwargs) -> int:
+        """
+        Create new carrier
+
+        Args:
+            phone: Phone number
+            email: Email address
+            **kwargs: Additional fields
+
+        Returns:
+            carrier_id
+        """
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO carriers (
-                    legal_name, phone, email, contact_name, company_name,
-                    address, city, state, zip, dot_number, mc_number,
-                    equipment_types, preferred_lanes, notes
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+
+            # Build dynamic INSERT based on provided fields
+            fields = ['phone', 'email']
+            values = [phone, email]
+
+            for key, value in kwargs.items():
+                if value is not None:
+                    fields.append(key)
+                    values.append(value)
+
+            placeholders = ', '.join(['%s'] * len(values))
+            field_names = ', '.join(fields)
+
+            query = f"""
+                INSERT INTO carriers ({field_names})
+                VALUES ({placeholders})
                 RETURNING id
-            ''', (
-                carrier_data.get('legal_name', carrier_data.get('name', 'Unknown')),
-                carrier_data.get('phone'),
-                carrier_data.get('email'),
-                carrier_data.get('contact_name'),
-                carrier_data.get('company_name'),
-                carrier_data.get('address'),
-                carrier_data.get('city'),
-                carrier_data.get('state'),
-                carrier_data.get('zip'),
-                carrier_data.get('dot_number'),
-                carrier_data.get('mc_number'),
-                carrier_data.get('equipment_types'),
-                carrier_data.get('preferred_lanes'),
-                carrier_data.get('notes')
-            ))
+            """
+
+            cursor.execute(query, values)
             carrier_id = cursor.fetchone()[0]
             conn.commit()
+
             return carrier_id
         except Exception as e:
             conn.rollback()
@@ -200,23 +322,33 @@ class PostgresCarrierDatabase:
         finally:
             self.return_connection(conn)
 
-    def update_carrier(self, carrier_id: int, updates: Dict):
-        """Update carrier information"""
+    def log_query(self, carrier_id: int, channel: str, raw_message: str,
+                  parsed_intent: str = None, parsed_entities: dict = None,
+                  search_criteria: dict = None, results_count: int = 0):
+        """Log carrier search query"""
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
-            
-            set_clauses = []
-            values = []
-            
-            for key, value in updates.items():
-                set_clauses.append(f"{key} = %s")
-                values.append(value)
-            
-            values.append(carrier_id)
-            
-            query = f"UPDATE carriers SET {', '.join(set_clauses)}, updated_at = CURRENT_TIMESTAMP WHERE id = %s"
-            cursor.execute(query, values)
+            cursor.execute("""
+                INSERT INTO queries (
+                    carrier_id, channel, raw_message, parsed_intent,
+                    parsed_entities, search_criteria, results_count
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """, (
+                carrier_id, channel, raw_message, parsed_intent,
+                json.dumps(parsed_entities) if parsed_entities else None,
+                json.dumps(search_criteria) if search_criteria else None,
+                results_count
+            ))
+            conn.commit()
+
+            # Update carrier engagement metrics
+            cursor.execute("""
+                UPDATE carriers
+                SET total_queries = total_queries + 1,
+                    last_active_date = CURRENT_TIMESTAMP
+                WHERE id = %s
+            """, (carrier_id,))
             conn.commit()
         except Exception as e:
             conn.rollback()
@@ -224,34 +356,24 @@ class PostgresCarrierDatabase:
         finally:
             self.return_connection(conn)
 
-    def log_query(self, carrier_id: int, query_data: Dict) -> int:
-        """Log a carrier query"""
+    def log_booking_request(self, carrier_id: int, load_id: str):
+        """Log carrier booking request"""
         conn = self.get_connection()
         try:
             cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO carrier_queries (
-                    carrier_id, origin, destination, equipment_type, intent, raw_message
-                ) VALUES (%s, %s, %s, %s, %s, %s)
-                RETURNING id
-            ''', (
-                carrier_id,
-                query_data.get('origin'),
-                query_data.get('destination'),
-                query_data.get('equipment_type'),
-                query_data.get('intent'),
-                query_data.get('raw_message')
-            ))
-            query_id = cursor.fetchone()[0]
+            cursor.execute("""
+                INSERT INTO booking_requests (carrier_id, load_id, status)
+                VALUES (%s, %s, 'pending')
+            """, (carrier_id, load_id))
             conn.commit()
-            
-            # Update carrier engagement
-            self.update_carrier(carrier_id, {
-                'total_queries': f"total_queries + 1",
-                'last_active_date': datetime.now()
-            })
-            
-            return query_id
+
+            # Update carrier metrics
+            cursor.execute("""
+                UPDATE carriers
+                SET total_bookings = total_bookings + 1
+                WHERE id = %s
+            """, (carrier_id,))
+            conn.commit()
         except Exception as e:
             conn.rollback()
             raise
