@@ -164,14 +164,13 @@ class CarrierChatbot:
                 carrier_id=carrier_id,
                 channel='sms',
                 raw_message=message,
-                intent=intent,
-                origin=parsed.get('origin'),
-                destination=parsed.get('destination'),
-                equipment_type=parsed.get('equipment_type'),
-                pickup_date=parsed.get('pickup_date'),
-                loads_shown=len(loads),
-                load_ids_shown=load_ids,
-                response_time_seconds=(datetime.now() - start_time).seconds
+                parsed_intent=intent,
+                parsed_entities={
+                    'origin': parsed.get('origin'),
+                    'destination': parsed.get('destination'),
+                    'equipment_type': parsed.get('equipment_type')
+                },
+                results_count=len(loads)
             )
 
         else:
@@ -267,15 +266,15 @@ Questions? Call 770-965-1242"""
             self.database.log_query(
                 carrier_id=carrier_id,
                 channel='email',
-                raw_message=body[:500],  # First 500 chars
-                intent=intent,
-                origin=parsed.get('origin'),
-                destination=parsed.get('destination'),
-                equipment_type=parsed.get('equipment_type'),
-                pickup_date=parsed.get('pickup_date'),
-                loads_shown=len(loads),
-                load_ids_shown=load_ids,
-                response_time_seconds=(datetime.now() - start_time).seconds
+                raw_message=body[:500],
+                parsed_intent=intent,
+                parsed_entities={
+                    'origin': parsed.get('origin'),
+                    'destination': parsed.get('destination'),
+                    'equipment_type': parsed.get('equipment_type')
+                },
+                results_count=len(loads)
+            )
             )
 
             # Send email with formatted load list
