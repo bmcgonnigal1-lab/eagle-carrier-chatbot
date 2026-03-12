@@ -6,6 +6,7 @@ Flask application with dashboard and webhooks
 from flask import Flask, request, render_template, jsonify
 from datetime import datetime, timedelta
 import os
+import psycopg2
 import sys
 
 # Add parent directory to path
