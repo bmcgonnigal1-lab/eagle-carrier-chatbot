@@ -342,6 +342,13 @@ Now I can show you full details. What are you looking for?"""
     def _handle_empty_location(self, carrier: Dict, intent_data: Dict, state: ConversationState) -> str:
         """Handle 'I'm empty in X' - save location and ask qualifying questions"""
         origin = intent_data['origin']
+        equipment = intent_data.get('equipment_type')
+
+        # If only equipment provided (no location), ask for location
+        if equipment and not origin:
+            return f"""Got it - {equipment}! 👍
+
+Where are you empty at?"""
 
         # Save location to state
         state.set_waiting_destination(origin)
@@ -351,7 +358,12 @@ Now I can show you full details. What are you looking for?"""
                               equipment_types=json.dumps([]))  # We'll learn this next
 
         # Friendly response asking where they want to go
-        return f"""Cool! Where do you want to go from {origin}?
+        if equipment:
+            return f"""Cool! {equipment} empty in {origin} 👍
+
+Where do you heading?"""
+        else:
+            return f"""Cool! Where do you want to go from {origin}?
 
 Also, what equipment you running?"""
 
