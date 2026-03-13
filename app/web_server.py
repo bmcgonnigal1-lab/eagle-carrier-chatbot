@@ -6,7 +6,6 @@ Flask application with dashboard and webhooks
 from flask import Flask, request, render_template, jsonify
 from datetime import datetime, timedelta
 import os
-import psycopg2
 import sys
 
 # Add parent directory to path
@@ -398,6 +397,145 @@ def admin_process_emails():
     })
 
 
+@app.route('/admin/unparsed-messages', methods=['GET'])
+def unparsed_messages():
+    """
+    Show all messages that couldn't be parsed (intent = 'other')
+    Helps identify patterns to add to the conversation engine
+    """
+    db = get_database()
+    conn = db.get_connection()
+    try:
+        cursor = conn.cursor()
+
+        # Get unparsed messages grouped by raw_message
+        cursor.execute("""
+            SELECT
+                raw_message,
+                COUNT(*) as count,
+                MAX(timestamp) as last_seen,
+                parsed_entities
+            FROM queries
+            WHERE parsed_intent = 'other' OR parsed_intent IS NULL
+            GROUP BY raw_message, parsed_entities
+            ORDER BY count DESC, last_seen DESC
+            LIMIT 100
+        """)
+
+        unparsed = []
+        for row in cursor.fetchall():
+            unparsed.append({
+                'message': row[0],
+                'count': row[1],
+                'last_seen': row[2].isoformat() if row[2] else None,
+                'entities': row[3]
+            })
+
+        # Get parsing success rate
+        cursor.execute("""
+            SELECT
+                COUNT(*) FILTER (WHERE parsed_intent != 'other' AND parsed_intent IS NOT NULL) as parsed,
+                COUNT(*) FILTER (WHERE parsed_intent = 'other' OR parsed_intent IS NULL) as unparsed,
+                COUNT(*) as total
+            FROM queries
+        """)
+
+        stats = cursor.fetchone()
+        success_rate = (stats[0] / stats[2] * 100) if stats[2] > 0 else 0
+
+        html = f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Unparsed Messages - Eagle Carrier Chatbot</title>
+            <style>
+                body {{ font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }}
+                .container {{ max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 8px; }}
+                h1 {{ color: #2c3e50; }}
+                .stats {{ background: #3498db; color: white; padding: 20px; border-radius: 5px; margin: 20px 0; }}
+                .stats h2 {{ margin: 0 0 10px 0; }}
+                .stats .metric {{ font-size: 24px; font-weight: bold; }}
+                table {{ width: 100%; border-collapse: collapse; margin-top: 20px; }}
+                th {{ background: #34495e; color: white; padding: 12px; text-align: left; }}
+                td {{ padding: 12px; border-bottom: 1px solid #ddd; }}
+                tr:hover {{ background: #f8f9fa; }}
+                .count {{ background: #e74c3c; color: white; padding: 4px 8px; border-radius: 3px; font-weight: bold; }}
+                .back-link {{ display: inline-block; margin-bottom: 20px; color: #3498db; text-decoration: none; }}
+                .back-link:hover {{ text-decoration: underline; }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <a href="/" class="back-link">← Back to Dashboard</a>
+
+                <h1>🔍 Unparsed Messages</h1>
+
+                <div class="stats">
+                    <h2>Parsing Success Rate</h2>
+                    <div class="metric">{success_rate:.1f}%</div>
+                    <p>Parsed: {stats[0]:,} | Unparsed: {stats[1]:,} | Total: {stats[2]:,}</p>
+                </div>
+
+                <p>These messages couldn't be understood by the conversation engine. Use them to identify new patterns to add!</p>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Message</th>
+                            <th>Times Received</th>
+                            <th>Last Seen</th>
+                            <th>Detected Entities</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+        """
+
+        for msg in unparsed:
+            html += f"""
+                        <tr>
+                            <td><strong>{msg['message']}</strong></td>
+                            <td><span class="count">{msg['count']}</span></td>
+                            <td>{msg['last_seen'] or 'N/A'}</td>
+                            <td>{msg['entities'] or 'None'}</td>
+                        </tr>
+            """
+
+        if not unparsed:
+            html += """
+                        <tr>
+                            <td colspan="4" style="text-align: center; color: #27ae60; padding: 40px;">
+                                🎉 Great! All messages are being parsed successfully!
+                            </td>
+                        </tr>
+            """
+
+        html += """
+                    </tbody>
+                </table>
+
+                <div style="margin-top: 40px; padding: 20px; background: #ecf0f1; border-radius: 5px;">
+                    <h3>💡 How to Use This Data:</h3>
+                    <ol>
+                        <li>Look for common patterns in unparsed messages</li>
+                        <li>Add new regex patterns to <code>conversation_engine.py</code></li>
+                        <li>Update <code>_parse_location()</code> and <code>_parse_equipment()</code> methods</li>
+                        <li>Test the new patterns</li>
+                        <li>Watch the parsing success rate improve!</li>
+                    </ol>
+                </div>
+            </div>
+        </body>
+        </html>
+        """
+
+        return html
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+    finally:
+        db.return_connection(conn)
+
+
 @app.route('/health', methods=['GET'])
 def health():
     """
@@ -477,48 +615,3 @@ if __name__ == '__main__':
     """)
 
     app.run(host='0.0.0.0', port=port, debug=debug)
-
-@app.route('/admin/fix-schema', methods=['GET'])
-def fix_schema():
-    """One-time migration to add missing columns"""
-    try:
-        db = get_database()
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            ALTER TABLE carriers 
-            ADD COLUMN IF NOT EXISTS dot_number VARCHAR(50),
-            ADD COLUMN IF NOT EXISTS mc_number VARCHAR(50),
-            ADD COLUMN IF NOT EXISTS email VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS phone VARCHAR(50),
-            ADD COLUMN IF NOT EXISTS contact_name VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS company_name VARCHAR(255),
-            ADD COLUMN IF NOT EXISTS address TEXT,
-            ADD COLUMN IF NOT EXISTS city VARCHAR(100),
-            ADD COLUMN IF NOT EXISTS state VARCHAR(50),
-            ADD COLUMN IF NOT EXISTS zip VARCHAR(20),
-            ADD COLUMN IF NOT EXISTS preferred_lanes TEXT,
-            ADD COLUMN IF NOT EXISTS equipment_types TEXT,
-            ADD COLUMN IF NOT EXISTS notes TEXT,
-            ADD COLUMN IF NOT EXISTS created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        """)
-        
-        conn.commit()
-        
-        cursor.execute("SELECT COUNT(*) FROM carriers")
-        count = cursor.fetchone()[0]
-        
-        db.return_connection(conn)
-        
-        return jsonify({
-            'status': 'success',
-            'message': 'Schema updated successfully',
-            'carrier_count': count
-        })
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': str(e)
-        }), 500
