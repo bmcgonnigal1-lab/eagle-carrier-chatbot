@@ -199,6 +199,35 @@ class IntelligentConversationEngine:
                 result['confidence'] = 0.8
                 return result
 
+        # 7. NEW: City + Equipment patterns (no "loads" keyword needed)
+        # "Miami reefer", "Atlanta van", "Dallas flatbed"
+        location = self._parse_location(message_upper)
+        equipment = self._parse_equipment(message_upper)
+
+        if location and equipment:
+            # Both city and equipment detected
+            result['intent'] = 'search_loads'
+            result['origin'] = location
+            result['equipment_type'] = equipment
+            result['confidence'] = 0.75
+            return result
+
+        # 8. NEW: Just equipment (ask for location)
+        # "Van", "Reefer", "Flatbed"
+        if equipment and len(message_clean.split()) <= 2:
+            result['intent'] = 'empty_location'
+            result['equipment_type'] = equipment
+            result['confidence'] = 0.6
+            return result
+
+        # 9. NEW: Just city name (ask for equipment/destination)
+        # "Miami", "Atlanta", "Dallas"
+        if location and len(message_clean.split()) <= 2:
+            result['intent'] = 'search_loads'
+            result['origin'] = location
+            result['confidence'] = 0.6
+            return result
+
         return result
 
     def _parse_location(self, location: str) -> Optional[str]:
@@ -245,12 +274,15 @@ class IntelligentConversationEngine:
         return None
 
     def _parse_equipment(self, text: str) -> Optional[str]:
-        """Parse equipment type from text"""
+        """Parse equipment type from text (handles misspellings)"""
+        # Dry Van variations
         if 'DRY' in text or 'VAN' in text:
             return 'Dry Van'
-        elif 'REEFER' in text or 'REFRIG' in text:
+        # Reefer variations (including common misspellings)
+        elif 'REEFER' in text or 'REFRIG' in text or 'RIEFFER' in text or 'REFER' in text or 'REFFER' in text:
             return 'Reefer'
-        elif 'FLAT' in text:
+        # Flatbed variations
+        elif 'FLAT' in text or 'FLATBED' in text:
             return 'Flatbed'
         return None
 
