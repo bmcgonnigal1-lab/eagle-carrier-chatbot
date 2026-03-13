@@ -11,14 +11,14 @@ class RingCentralSMSChannel:
 
     def __init__(self, client_id=None, client_secret=None, server=None, phone_number=None, jwt_token=None):
         """Initialize RingCentral SMS with JWT"""
-        self.client_id = client_id or os.getenv('RC_APP_CLIENT_ID')
-        self.client_secret = client_secret or os.getenv('RC_APP_CLIENT_SECRET')
-        self.server = server or os.getenv('RC_SERVER_URL', 'https://platform.ringcentral.com')
-        self.phone_number = phone_number or os.getenv('RC_PHONE_NUMBER')
-        self.jwt_token = jwt_token or os.getenv('RC_USER_JWT')
+        self.client_id = client_id or os.getenv('RINGCENTRAL_CLIENT_ID') or os.getenv('RC_APP_CLIENT_ID')
+        self.client_secret = client_secret or os.getenv('RINGCENTRAL_CLIENT_SECRET') or os.getenv('RC_APP_CLIENT_SECRET')
+        self.server = server or os.getenv('RINGCENTRAL_SERVER_URL') or os.getenv('RC_SERVER_URL', 'https://platform.ringcentral.com')
+        self.phone_number = phone_number or os.getenv('RINGCENTRAL_PHONE_NUMBER') or os.getenv('RC_PHONE_NUMBER')
+        self.jwt_token = jwt_token or os.getenv('RINGCENTRAL_JWT_TOKEN') or os.getenv('RC_USER_JWT')
 
         if not all([self.client_id, self.client_secret, self.phone_number, self.jwt_token]):
-            raise ValueError("Missing RingCentral credentials. Need RC_APP_CLIENT_ID, RC_APP_CLIENT_SECRET, RC_PHONE_NUMBER, and RC_USER_JWT")
+            raise ValueError("Missing RingCentral credentials. Need RINGCENTRAL_CLIENT_ID, RINGCENTRAL_CLIENT_SECRET, RINGCENTRAL_PHONE_NUMBER, and RINGCENTRAL_JWT_TOKEN")
 
         self.sdk = SDK(self.client_id, self.client_secret, self.server)
         self.platform = self.sdk.platform()
