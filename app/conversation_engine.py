@@ -212,17 +212,18 @@ class IntelligentConversationEngine:
             result['confidence'] = 0.75
             return result
 
-        # 8. NEW: Just equipment (ask for location)
+        # 8. NEW: Just equipment (prioritize equipment over location for single words)
         # "Van", "Reefer", "Flatbed"
         if equipment and len(message_clean.split()) <= 2:
+            # Equipment detected - ask for location
             result['intent'] = 'empty_location'
             result['equipment_type'] = equipment
-            result['confidence'] = 0.6
+            result['confidence'] = 0.7
             return result
 
-        # 9. NEW: Just city name (ask for equipment/destination)
+        # 9. NEW: Just city name (only if NOT equipment)
         # "Miami", "Atlanta", "Dallas"
-        if location and len(message_clean.split()) <= 2:
+        if location and len(message_clean.split()) <= 2 and not equipment:
             result['intent'] = 'search_loads'
             result['origin'] = location
             result['confidence'] = 0.6
@@ -267,7 +268,12 @@ class IntelligentConversationEngine:
         if location in state_map:
             return state_map[location]
 
-        # Try to extract first 3 letters as code
+        # Exclude equipment keywords from being treated as locations
+        equipment_keywords = ['VAN', 'REEFER', 'RIEFFER', 'REFER', 'REFFER', 'FLATBED', 'FLAT', 'DRY', 'REFRIG']
+        if location in equipment_keywords:
+            return None
+
+        # Try to extract first 3 letters as code (only for longer city names)
         if len(location) >= 3:
             return location[:3].upper()
 
