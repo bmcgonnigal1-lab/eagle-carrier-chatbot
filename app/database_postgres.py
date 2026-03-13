@@ -322,6 +322,41 @@ class PostgresCarrierDatabase:
         finally:
             self.return_connection(conn)
 
+    def update_carrier(self, phone: str, **kwargs):
+        """
+        Update carrier profile by phone number
+
+        Args:
+            phone: Carrier phone number
+            **kwargs: Fields to update (mc_number, equipment_types, etc.)
+        """
+        conn = self.get_connection()
+        try:
+            cursor = conn.cursor()
+
+            # Build SET clause dynamically
+            set_parts = []
+            values = []
+
+            for key, value in kwargs.items():
+                set_parts.append(f"{key} = %s")
+                values.append(value)
+
+            # Add phone to end of values list for WHERE clause
+            values.append(phone)
+
+            set_clause = ', '.join(set_parts)
+            query = f"UPDATE carriers SET {set_clause} WHERE phone = %s"
+
+            cursor.execute(query, values)
+            conn.commit()
+
+        except Exception as e:
+            conn.rollback()
+            raise
+        finally:
+            self.return_connection(conn)
+
     def log_query(self, carrier_id: int, channel: str, raw_message: str,
                   parsed_intent: str = None, parsed_entities: dict = None,
                   search_criteria: dict = None, results_count: int = 0):
