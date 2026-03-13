@@ -47,6 +47,20 @@ class RingCentralSMSChannel:
             print(f"✗ Failed to send SMS to {to_phone}: {e}")
             return False
 
+    def normalize_phone(self, phone: str) -> str:
+        """Normalize phone number to E.164 format"""
+        # Remove all non-numeric characters
+        digits = ''.join(filter(str.isdigit, phone))
+
+        # Add +1 if not present (assume US/Canada)
+        if not phone.startswith('+'):
+            if len(digits) == 10:
+                return f'+1{digits}'
+            elif len(digits) == 11 and digits[0] == '1':
+                return f'+{digits}'
+
+        return phone if phone.startswith('+') else f'+{phone}'
+
     def is_us_phone(self, phone: str) -> bool:
         """Check if phone is US or Canada"""
         return phone.startswith('+1')
@@ -66,6 +80,20 @@ class MockRingCentralSMSChannel:
         print(f"\n📱 [MOCK SMS to {to_phone}]")
         print(f"Message: {message}\n")
         return True
+
+    def normalize_phone(self, phone: str) -> str:
+        """Normalize phone number to E.164 format"""
+        # Remove all non-numeric characters
+        digits = ''.join(filter(str.isdigit, phone))
+
+        # Add +1 if not present (assume US/Canada)
+        if not phone.startswith('+'):
+            if len(digits) == 10:
+                return f'+1{digits}'
+            elif len(digits) == 11 and digits[0] == '1':
+                return f'+{digits}'
+
+        return phone if phone.startswith('+') else f'+{phone}'
 
     def is_us_phone(self, phone: str) -> bool:
         """Check if phone is US or Canada"""
